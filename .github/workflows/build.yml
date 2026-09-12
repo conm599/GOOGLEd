@@ -30,7 +30,7 @@ jobs:
         run: npm run build
 
       - name: Package NSIS installer
-        run: npx electron-builder --win --config electron-builder.yml
+        run: npx electron-builder --win --config electron-builder.yml --publish never
         env:
           # 无代码签名证书，跳过签名探测
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
