@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, shell, Tray } from 'electron'
 import * as path from 'node:path'
-import { loadSettings, applyAutoStart } from './settings'
+import { loadSettings, applyAutoStart, applyNativeTheme } from './settings'
 import { netClient } from './net/NetClient'
 import { transferEngine } from './transfer/TransferEngine'
 import { registerIpc } from './ipc'
@@ -70,6 +70,7 @@ if (!gotLock) {
     Menu.setApplicationMenu(null) // 移除默认菜单栏（File/Edit/View/Window/Help）
     logger.info('GOOGLEd 启动', { version: app.getVersion(), silent: SILENT_START })
     await netClient.applySettings(loadSettings())
+    applyNativeTheme(loadSettings())
     await applyAutoStart(loadSettings())
     registerStreamHandler()
     registerIpc()

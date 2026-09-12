@@ -1,4 +1,4 @@
-import { app, safeStorage } from 'electron'
+import { app, nativeTheme, safeStorage } from 'electron'
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -73,6 +73,11 @@ async function removeStaleRunEntries(): Promise<void> {
     )
   )
   if (names.length) logger.info(`清理重复启动项 ${names.length} 条`)
+}
+
+/** 把原生窗口标题栏/系统控件主题与应用内设置联动（否则暗色模式下原生标题栏还是系统默认的白色） */
+export function applyNativeTheme(s: Settings): void {
+  nativeTheme.themeSource = s.theme === 'dark' ? 'dark' : 'light'
 }
 
 /** 应用开机自启动到系统登录项。仅打包版写入（dev 模式不把 electron.exe 注册成开机启动）；

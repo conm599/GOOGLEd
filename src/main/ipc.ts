@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow, app, dialog, shell, webUtils } from 'electron'
 import * as fs from 'node:fs'
-import { loadSettings, saveSettings, applyAutoStart } from './settings'
+import { loadSettings, saveSettings, applyAutoStart, applyNativeTheme } from './settings'
 import { netClient } from './net/NetClient'
 import { authService } from './auth/AuthService'
 import { driveClient } from './drive/DriveClient'
@@ -22,6 +22,7 @@ export function registerIpc(): void {
   ipcMain.handle('settings:update', async (_e, patch: Record<string, unknown>) => {
     const s = { ...loadSettings(), ...patch }
     saveSettings(s)
+    applyNativeTheme(s)
     await netClient.applySettings(s)
     void applyAutoStart(s)
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send('settings:changed', s)
