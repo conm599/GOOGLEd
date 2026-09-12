@@ -888,17 +888,17 @@ function showMenu(x: number, y: number, f: DriveFile): void {
   ctx.visible = true
   ctxBlank.visible = false
   window.addEventListener('click', closeCtx, { once: true })
-  clampMenu()
+  clampMenu(ctx)
 }
 
 /** 菜单渲染后测量实际尺寸，靠边就往回收，保证完整显示在窗口内 */
-function clampMenu(): void {
+function clampMenu(menu: { x: number; y: number }): void {
   void nextTick(() => {
     const el = document.querySelector<HTMLElement>('.ctx-menu')
     if (!el) return
     const rect = el.getBoundingClientRect()
-    if (ctx.x + rect.width > window.innerWidth - 6) ctx.x = Math.max(6, window.innerWidth - rect.width - 6)
-    if (ctx.y + rect.height > window.innerHeight - 6) ctx.y = Math.max(6, window.innerHeight - rect.height - 6)
+    if (menu.x + rect.width > window.innerWidth - 6) menu.x = Math.max(6, window.innerWidth - rect.width - 6)
+    if (menu.y + rect.height > window.innerHeight - 6) menu.y = Math.max(6, window.innerHeight - rect.height - 6)
   })
 }
 
@@ -915,7 +915,7 @@ function onBlankContext(ev: MouseEvent): void {
   ctxBlank.visible = true
   ctx.visible = false
   window.addEventListener('click', () => (ctxBlank.visible = false), { once: true })
-  clampMenu()
+  clampMenu(ctxBlank)
 }
 
 watch(showTrash, () => {
