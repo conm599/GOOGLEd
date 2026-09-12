@@ -102,6 +102,7 @@ const api = {
   // 缓存管理
   cacheStats: (): Promise<{
     orphanParts: { count: number; bytes: number }
+    updateCacheBytes: number
     downloadDirBytes: number
     downloadDir: string
   }> => ipcRenderer.invoke('cache:stats'),
