@@ -29,6 +29,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { UpdateInfo } from '../../../shared/types'
 import { fmtSize } from '../utils/format'
+import { plain } from '../utils/action'
 
 const visible = ref(false)
 const info = ref<UpdateInfo | null>(null)
@@ -56,7 +57,8 @@ async function start(): Promise<void> {
   received.value = 0
   total.value = 0
   try {
-    await window.api.startUpdate(info.value)
+    // info 是 ref 包着的 reactive Proxy，必须先纯化：contextBridge 参数过桥时会结构化克隆，Proxy 直接抛 "could not be cloned"
+    await window.api.startUpdate(plain(info.value))
     // 主进程下载完成后会自动拉起安装器并退出应用；走到这里说明已移交
     visible.value = false
   } catch (e) {
