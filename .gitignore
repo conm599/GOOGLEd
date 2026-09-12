@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+release/
+*.log
+.DS_Store
+
+# 本地运行数据与会话文件（绝不入库）
+.zcode/
+.backup-test/
+.test-upload/

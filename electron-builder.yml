@@ -1,0 +1,31 @@
+appId: com.googled.desktop
+productName: GOOGLEd
+copyright: GOOGLEd
+directories:
+  output: release/${version}
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+files:
+  - out/**
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.*"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  shortcutName: GOOGLEd
+extraResources:
+  - from: build/icon.ico
+    to: icon.ico
