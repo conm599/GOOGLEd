@@ -600,13 +600,16 @@ async function load(): Promise<void> {
     if (inTrash.value) {
       const r = await window.api.driveListTrash()
       files.value = r.files
+      nextPageToken = undefined
     } else if (searching.value) {
-      const r = await window.api.driveList({ parentId: currentId.value, query: searchText.value, orderBy: orderBy.value, pageSize: 200, trashed: false })
+      const r = await window.api.driveList({ parentId: currentId.value, query: searchText.value, orderBy: orderBy.value, pageSize: 100, trashed: false })
       files.value = r.files
+      nextPageToken = r.nextPageToken
     } else {
       // 必须显式过滤回收站：files.list 不传 trashed 时会连已删除文件一起返回
-      const r = await window.api.driveList({ parentId: currentId.value, orderBy: orderBy.value, pageSize: 200, trashed: false })
+      const r = await window.api.driveList({ parentId: currentId.value, orderBy: orderBy.value, pageSize: 100, trashed: false })
       files.value = r.files
+      nextPageToken = r.nextPageToken
       loadThumbs()
     }
   } catch (e) {
@@ -614,7 +617,49 @@ async function load(): Promise<void> {
   } finally {
     clearSelection()
     loading.value = false
+    armInfiniteScroll()
   }
+}
+
+/* ---------- 分组无限加载：每批 100 个，滚近底部自动追加下一页 ---------- */
+let nextPageToken: string | undefined
+let loadingMore = false
+
+async function loadMore(): Promise<void> {
+  if (loadingMore || loading.value || !nextPageToken || inTrash.value) return
+  loadingMore = true
+  try {
+    const r = await window.api.driveList({
+      parentId: currentId.value,
+      query: searching.value ? searchText.value : undefined,
+      orderBy: orderBy.value,
+      pageToken: nextPageToken,
+      pageSize: 100,
+      trashed: false
+    })
+    nextPageToken = r.nextPageToken
+    files.value = files.value.concat(r.files)
+    loadThumbs()
+  } catch {
+    /* 静默失败：继续滚动会重试 */
+  } finally {
+    loadingMore = false
+  }
+}
+
+let scrollEl: HTMLElement | null = null
+const onScrollerScroll = (): void => {
+  const el = scrollEl
+  if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 600) void loadMore()
+}
+
+/** 把滚动监听挂到当前视图真正的滚动容器上（列表=el-table 内部，宫格=.thumb-grid） */
+function armInfiniteScroll(): void {
+  void nextTick(() => {
+    scrollEl?.removeEventListener('scroll', onScrollerScroll)
+    scrollEl = getScroller()
+    scrollEl?.addEventListener('scroll', onScrollerScroll, { passive: true })
+  })
 }
 
 /* ---------- 缩略图懒加载：IntersectionObserver 只加载滚进可视区的卡片，滚到哪加载到哪 ---------- */
@@ -856,6 +901,7 @@ watch(currentId, () => {
 // 切到宫格视图时（重新）挂观察器，让可见卡片的缩略图开始加载
 watch(view, (v) => {
   if (v === 'grid') loadThumbs()
+  armInfiniteScroll()
 })
 
 onMounted(() => {
@@ -875,6 +921,7 @@ onBeforeUnmount(() => {
   offTrashProgress?.()
   thumbObserver?.disconnect()
   thumbObserver = null
+  scrollEl?.removeEventListener('scroll', onScrollerScroll)
 })
 </script>
 
@@ -970,6 +1017,9 @@ onBeforeUnmount(() => {
 }
 .thumb-card {
   border: 2px solid transparent;
+  /* 视口外的卡片跳过渲染/布局/绘制：几千个文件也只渲染看得见的部分（浏览器原生窗口化） */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
 }
 .thumb-card.card-selected {
   border-color: var(--el-color-primary);
