@@ -51,7 +51,7 @@ class TransferEngine {
       if (t.status === 'running' || t.status === 'queued') t.status = 'paused'
       if (t.kind === 'download' && (t.transferred > 0 || t.status === 'paused')) {
         const dt = new DownloadTask(t)
-        void dt.reconcileFromDisk().then(() => this.emit())
+        void dt.reconcileFromDisk().then(() => this.emit(true))
       }
       this.tasks.set(t.id, t)
     }
@@ -85,7 +85,7 @@ class TransferEngine {
     if (result.canceled || !result.filePaths.length) return 0
     let count = 0
     for (const p of result.filePaths) count += await this.addUploadPath(p, parentId)
-    this.emit()
+    this.emit(true)
     return count
   }
 
@@ -98,14 +98,14 @@ class TransferEngine {
     })
     if (result.canceled || !result.filePaths.length) return 0
     const count = await this.addUploadPath(result.filePaths[0], parentId)
-    this.emit()
+    this.emit(true)
     return count
   }
 
   async addUploadsFromPaths(paths: string[], parentId: string): Promise<number> {
     let count = 0
     for (const p of paths) count += await this.addUploadPath(p, parentId)
-    this.emit()
+    this.emit(true)
     return count
   }
 
@@ -149,7 +149,7 @@ class TransferEngine {
         logger.warn('备份入队失败', f.rel, (e as Error).message)
       }
     }
-    this.emit()
+    this.emit(true)
     return count
   }
 
@@ -215,7 +215,7 @@ class TransferEngine {
     this.tasks.set(task.id, task)
     this.persistSoon()
     this.pump()
-    this.emit()
+    this.emit(true)
     return 1
   }
 
@@ -225,7 +225,7 @@ class TransferEngine {
     this.controllers.get(id)?.abort()
     t.status = 'paused'
     t.updatedAt = Date.now()
-    this.emit()
+    this.emit(true)
   }
 
   resume(id: string): void {
@@ -236,7 +236,7 @@ class TransferEngine {
     t.updatedAt = Date.now()
     this.persistSoon()
     this.pump()
-    this.emit()
+    this.emit(true)
   }
 
   cancel(id: string): void {
@@ -247,7 +247,7 @@ class TransferEngine {
     t.updatedAt = Date.now()
     this.persistSoon()
     this.pump()
-    this.emit()
+    this.emit(true)
   }
 
   async remove(id: string): Promise<void> {
@@ -260,7 +260,7 @@ class TransferEngine {
     }
     this.tasks.delete(id)
     this.persistSoon()
-    this.emit()
+    this.emit(true)
   }
 
   clearFinished(): void {
@@ -268,7 +268,7 @@ class TransferEngine {
       if (t.status === 'done' || t.status === 'canceled') this.tasks.delete(id)
     }
     this.persistSoon()
-    this.emit()
+    this.emit(true)
   }
 
   /** 清除所有任务：中断进行中的（上传/下载/排队全部移除，断点文件一并清理） */
@@ -283,7 +283,7 @@ class TransferEngine {
       this.controllers.delete(id)
     }
     this.persistSoon()
-    this.emit()
+    this.emit(true)
   }
 
   /** 按并发数补位启动队列任务 */
@@ -330,6 +330,13 @@ class TransferEngine {
           const remoteSize = meta.size ? parseInt(meta.size, 10) : -1
           if (t.size > 0 && remoteSize !== t.size) throw new Error(`上传校验失败：远端 ${remoteSize} / 本地 ${t.size} 字节`)
         }
+        // 新版校验通过，被替换的旧版（在回收站）此刻才彻底删除
+        if (t.replacedOldId) {
+          const oldId = t.replacedOldId
+          delete t.replacedOldId
+          await driveClient.deleteForever(oldId).catch((e) => logger.warn('旧版本彻底删除失败（保留在回收站）', oldId, (e as Error).message))
+          this.persistSoon()
+        }
       } else {
         await new DownloadTask(t).run(controller.signal, onProgress)
       }
@@ -339,7 +346,10 @@ class TransferEngine {
     } catch (e) {
       const err = e as Error
       if (err.name === 'AbortError' || controller.signal.aborted) {
-        t.status = 'paused' // 暂停=保留断点
+        // 用户取消（cancel 先置 canceled 再 abort）不能被覆盖成暂停；
+        // cur 用宽类型承接：TS 不知道 cancel() 会在 abort 前从外部把状态改成 canceled
+        const cur: string = t.status
+        if (cur !== 'canceled') t.status = 'paused'
       } else {
         t.status = 'error'
         t.error = err.message
@@ -386,7 +396,32 @@ class TransferEngine {
     }, 800)
   }
 
-  private emit(): void {
+  private emitTimer: NodeJS.Timeout | null = null
+  private lastEmitAt = 0
+
+  /**
+   * 推送任务快照。任务量大时全量克隆 + IPC 推送很贵（几万任务每秒一推会把主进程和渲染层一起拖死），
+   * 按任务量自适应限频（1s/3s/5s），尾沿定时器保证最终状态一定送达。
+   * force 用于用户主动操作（暂停/取消/清除等），跳过限频立即推送。
+   */
+  private emit(force = false): void {
+    if (!force) {
+      const size = this.tasks.size
+      const minInterval = size > 20000 ? 5000 : size > 5000 ? 3000 : 1000
+      const elapsed = Date.now() - this.lastEmitAt
+      if (elapsed < minInterval) {
+        this.emitTimer ??= setTimeout(() => {
+          this.emitTimer = null
+          this.emit(true)
+        }, minInterval - elapsed)
+        return
+      }
+    }
+    if (this.emitTimer) {
+      clearTimeout(this.emitTimer)
+      this.emitTimer = null
+    }
+    this.lastEmitAt = Date.now()
     const snapshot = this.list().map((t) => ({ ...t, sessionUri: undefined }))
     for (const w of BrowserWindow.getAllWindows()) {
       w.webContents.send('transfer:changed', snapshot)

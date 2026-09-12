@@ -117,6 +117,8 @@ export interface TransferTask {
   exportMime?: string
   /** 设置后内容更新到这个已有文件（增量备份修改场景，避免产生重复文件） */
   updateFileId?: string
+  /** 大文件更新时被移入回收站的旧文件 id：新版上传校验通过后再彻底删除（失败可从回收站还原） */
+  replacedOldId?: string
   createdAt: number
   updatedAt: number
 }

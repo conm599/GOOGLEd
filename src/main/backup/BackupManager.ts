@@ -47,6 +47,8 @@ class BackupManager {
   private stabilityTimers = new Map<string, NodeJS.Timeout>()
   /** 定时备份定时器：按任务计划到点执行一次自动备份 */
   private scheduleTimers = new Map<string, NodeJS.Timeout>()
+  /** 同步进行中又有新变动的任务：本轮结束后补跑一次，变动绝不静默丢失 */
+  private resyncQueued = new Set<string>()
 
   start(): void {
     for (const t of this.store.load()) {
@@ -186,6 +188,12 @@ class BackupManager {
       this.syncing.delete(id)
       this.emit()
       this.scheduleStabilityCheck(id) // 只要还有等待稳定的文件，保证始终有闹钟在
+      if (this.resyncQueued.delete(id)) {
+        // 同步进行中发生过文件变动：稍候补跑一轮，把中途的变更加进来（若补跑中又变动，会再次入队）
+        setTimeout(() => {
+          if (this.tasks.has(id) && !this.syncing.has(id)) void this.syncNow(id).catch(() => undefined)
+        }, 3000)
+      }
     }
   }
 
@@ -447,7 +455,12 @@ class BackupManager {
           id,
           setTimeout(() => {
             this.debounceTimers.delete(id)
-            if (!this.syncing.has(id)) void this.syncNow(id).catch(() => undefined)
+            if (this.syncing.has(id)) {
+              // 同步进行中：不能丢掉这次变动，标记脏位，本轮结束后补跑
+              this.resyncQueued.add(id)
+              return
+            }
+            void this.syncNow(id).catch(() => undefined)
           }, delay)
         )
       })

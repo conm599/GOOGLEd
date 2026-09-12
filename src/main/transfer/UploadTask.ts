@@ -28,11 +28,11 @@ export class UploadTask {
         await this.updateInPlace(signal, onProgress)
         return
       }
-      try {
-        await driveClient.deleteForever(t.updateFileId)
-      } catch {
-        /* 删不掉也不阻塞，顶多留一个旧版本文件 */
-      }
+      // 大文件更新：旧版先移入回收站（可逆），新版传完并校验通过后再彻底删除；
+      // 直接 deleteForever 的话传一半失败 = 新旧全丢。移回收站失败就中止任务，绝不动旧文件
+      const oldId = t.updateFileId
+      await driveClient.trash(oldId)
+      t.replacedOldId = oldId
       t.updateFileId = undefined
       t.remoteId = undefined
     }
@@ -260,6 +260,7 @@ export class UploadTask {
       this.task.sessionUri = undefined
       const uri = await this.initiate()
       this.task.sessionUri = uri
+      onMeta?.({ sessionUri: uri }) // 新会话立刻落盘，崩了不至于拿旧失效会话恢复
       return 0
     }
     const text = await res.text()

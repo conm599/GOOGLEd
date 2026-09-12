@@ -13,7 +13,8 @@
       <el-button type="danger" plain @click="clearAll" :disabled="!store.tasks.length">清除所有任务</el-button>
     </div>
 
-    <el-table :data="filtered" height="calc(100% - 60px)" empty-text="暂无传输任务">
+    <div ref="tableWrapRef" class="table-wrap">
+      <el-table :data="displayed" height="100%" empty-text="暂无传输任务">
       <el-table-column label="文件" min-width="280">
         <template #default="{ row }">
           <div class="file-name">
@@ -53,11 +54,12 @@
         </template>
       </el-table-column>
     </el-table>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TransferTask, TaskStatus } from '../../../shared/types'
 import { useAppStore } from '../stores/app'
@@ -66,6 +68,21 @@ import { withToast } from '../utils/action'
 
 const store = useAppStore()
 const filter = ref('all')
+
+/* ---------- 大量任务只渲染窗口：默认 200 条，滚近底部追加 200（几万任务也不卡） ---------- */
+const renderLimit = ref(200)
+const tableWrapRef = ref<HTMLElement>()
+let tableScroller: HTMLElement | null = null
+const displayed = computed(() => filtered.value.slice(0, renderLimit.value))
+const onTableScroll = (): void => {
+  const el = tableScroller
+  if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 900) {
+    renderLimit.value = Math.min(renderLimit.value + 200, filtered.value.length)
+  }
+}
+watch(filter, () => {
+  renderLimit.value = 200
+})
 
 // 速度显示保持：分块上传时速度只在块被确认的瞬间大于 0，保持最近一次非零值 4 秒，避免显示闪烁消失
 const SPEED_HOLD_MS = 4000
@@ -86,6 +103,10 @@ function speedOf(t: TransferTask): number {
 }
 
 onMounted(() => {
+  void nextTick(() => {
+    tableScroller = tableWrapRef.value?.querySelector<HTMLElement>('.el-scrollbar__wrap') ?? null
+    tableScroller?.addEventListener('scroll', onTableScroll, { passive: true })
+  })
   tickTimer = window.setInterval(() => {
     tick.value++
     const now = Date.now()
@@ -94,7 +115,10 @@ onMounted(() => {
     }
   }, 1000)
 })
-onUnmounted(() => clearInterval(tickTimer))
+onUnmounted(() => {
+  clearInterval(tickTimer)
+  tableScroller?.removeEventListener('scroll', onTableScroll)
+})
 
 const filtered = computed(() => {
   const all = store.tasks
@@ -173,3 +197,9 @@ function reveal(t: TransferTask): void {
   void window.api.showItemInFolder(t.localPath).then(() => undefined).catch((e: Error) => ElMessage.error(e.message))
 }
 </script>
+
+<style scoped>
+.table-wrap {
+  height: calc(100% - 60px);
+}
+</style>

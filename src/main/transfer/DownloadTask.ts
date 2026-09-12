@@ -80,9 +80,15 @@ export class DownloadTask {
 
     const res = await netClient.request(url, { headers, timeoutMs: 60000, signal })
     if (res.status === 416) {
-      // 断点已到文件末尾 → 直接落定
-      await this.finalize()
-      return
+      // 断点已到文件末尾 → 落定；但 .part 大小和已知大小对不上说明远端文件被换过，丢弃断点防止拿坏文件当成品
+      const partSize = (await fsp.stat(this.partPath).catch(() => null))?.size ?? -1
+      if (partSize === t.size) {
+        await this.finalize()
+        return
+      }
+      logger.warn('断点大小与远端文件不一致，丢弃断点', t.fileName, `${partSize} ≠ ${t.size}`)
+      await this.clearPart()
+      throw new Error('远端文件已变化（大小不一致），断点已丢弃，请重新下载')
     }
     if (!res.ok && res.status !== 206 && res.status !== 200) {
       const text = await res.text()
@@ -98,9 +104,21 @@ export class DownloadTask {
       }
     }
 
+    if (res.status === 200 && start > 0) {
+      // 服务端没按 Range 返回 206（If-Range 未命中/被忽略）：这是完整内容，必须从头写，避免错位拼接
+      logger.warn('服务端返回完整内容，改从头下载', t.fileName)
+      start = 0
+      await this.clearPart()
+    }
+
     await fsp.mkdir(path.dirname(t.localPath), { recursive: true })
-    const ws = fs.createWriteStream(this.partPath, { flags: start > 0 ? 'r+' : 'w', start })
     const hash = crypto.createHash('md5')
+    // 断点续传：先把 .part 已有的前 start 字节喂进 hash——只算新收的后半段，MD5 必然和远端对不上
+    if (start > 0) {
+      const prefix = fs.createReadStream(this.partPath, { start: 0, end: start - 1 })
+      for await (const c of prefix) hash.update(c)
+    }
+    const ws = fs.createWriteStream(this.partPath, { flags: start > 0 ? 'r+' : 'w', start })
     let received = start
     let lastEmit = 0
 
