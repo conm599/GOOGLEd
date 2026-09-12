@@ -942,6 +942,31 @@ onBeforeUnmount(() => {
   height: calc(100% - 130px);
   overflow: auto;
   position: relative;
+  /* 行高贴合内容：内容不满一屏时行不再被拉伸填满容器（否则出现超长空白卡片/伪尾翼） */
+  align-content: start;
+}
+/* 缩略图区固定高度 + overflow hidden：无论图片本身多大/什么状态，卡片高度都不可能被撑爆 */
+.thumb-box {
+  position: relative;
+  height: 100px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
+}
+.thumb-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .thumb-card {
   border: 2px solid transparent;
