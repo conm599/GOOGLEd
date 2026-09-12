@@ -15,6 +15,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Sync version from tag (release builds)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+
+      - name: Bump patch version (every dev build +1)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm version patch --no-git-tag-version
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to v$(node -p \"require('./package.json').version\") [skip ci]"
+          git push || echo "::warning::version bump push failed, building with local version"
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20

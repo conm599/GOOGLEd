@@ -31,7 +31,7 @@ npm run dev     # 启动开发版
 
 ## 获取安装包
 
-- **GitHub Actions 自动打包（推荐）**： push 到 main 或手动触发 [Build Windows](https://github.com/conm599/GOOGLEd/actions/workflows/build.yml) 工作流，在 Artifacts 下载安装包；打 `v*` tag 会自动发布到 Releases
+- **GitHub Actions 自动打包（推荐）**：push 到 main 或手动触发 [Build Windows](https://github.com/conm599/GOOGLEd/actions/workflows/build.yml) 工作流——**每次打包版本号自动 +1**（patch 位并回写 package.json），在 Artifacts 下载安装包；要发正式版就给目标版本打 `v*` tag（安装包版本与 tag 一致），自动发布到 Releases
 - 本地打包：
 
 ```bash
