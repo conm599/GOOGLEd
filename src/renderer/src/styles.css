@@ -10,6 +10,12 @@ body {
   overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
+  /* 跟随主题：否则暗色模式下未设背景的区域（工具栏/面包屑带）露出浏览器默认白底 */
+  background: var(--el-bg-color);
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 .layout {
