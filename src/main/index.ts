@@ -6,6 +6,7 @@ import { transferEngine } from './transfer/TransferEngine'
 import { registerIpc } from './ipc'
 import { registerStreamScheme, registerStreamHandler } from './media/StreamProtocol'
 import { backupManager } from './backup/BackupManager'
+import { updateService } from './update/UpdateService'
 import * as diskCache from './storage/DiskCache'
 import { logger } from './logger'
 
@@ -71,6 +72,7 @@ if (!gotLock) {
     registerIpc()
     transferEngine.start()
     backupManager.start()
+    updateService.startAutoCheck()
     createWindow()
     createTray()
     // 缓存自动清理：启动 30 秒后评估一次，之后每 30 分钟检查

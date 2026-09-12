@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DriveFile, Settings, TransferTask, AuthStatus, WorkerTestResult, DrivePermission } from '../shared/types'
+import type { DriveFile, Settings, TransferTask, AuthStatus, WorkerTestResult, DrivePermission, UpdateInfo } from '../shared/types'
 
 /**
  * IPC 结构化克隆不接受任何 Proxy——而 Vue reactive 是深层的，
@@ -125,9 +125,26 @@ const api = {
   clearFinished: (): Promise<void> => ipcRenderer.invoke('transfer:clearFinished'),
   clearAllTasks: (): Promise<void> => ipcRenderer.invoke('transfer:clearAll'),
 
+  // 更新
+  checkUpdate: (): Promise<{ status: 'latest' | 'available' | 'error'; info?: UpdateInfo; error?: string }> =>
+    ipcRenderer.invoke('update:check'),
+  ignoreUpdate: (version: string): Promise<void> => ipcRenderer.invoke('update:ignore', version),
+  startUpdate: (info: UpdateInfo): Promise<void> => ipcRenderer.invoke('update:start', plain(info)),
+  onUpdateAvailable: (cb: (info: UpdateInfo) => void): (() => void) => {
+    const listener = (_e: unknown, info: UpdateInfo): void => cb(info)
+    ipcRenderer.on('update:available', listener)
+    return () => ipcRenderer.removeListener('update:available', listener)
+  },
+  onUpdateProgress: (cb: (p: { received: number; total: number }) => void): (() => void) => {
+    const listener = (_e: unknown, p: { received: number; total: number }): void => cb(p)
+    ipcRenderer.on('update:progress', listener)
+    return () => ipcRenderer.removeListener('update:progress', listener)
+  },
+
   // 系统
   pickDownloadDir: (): Promise<string> => ipcRenderer.invoke('dialog:pickDownloadDir'),
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   openPath: (p: string): Promise<string> => ipcRenderer.invoke('app:openPath', p),
   showItemInFolder: (p: string): Promise<boolean> => ipcRenderer.invoke('app:showItemInFolder', p),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),

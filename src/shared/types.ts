@@ -25,7 +25,17 @@ export interface Settings {
   autoStart: boolean
   /** 静默自启动：开机后不弹主窗口，直接进系统托盘 */
   autoStartHidden: boolean
+  /** 用户点过「忽略这次更新」的版本号，之后不再弹该版本的更新提示 */
+  ignoredUpdateVersion?: string
   theme: 'light' | 'dark'
+}
+
+/** 一次可用的更新：版本号 + 更新说明 + 安装包下载地址 */
+export interface UpdateInfo {
+  version: string
+  notes: string
+  assetUrl: string
+  assetName: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {

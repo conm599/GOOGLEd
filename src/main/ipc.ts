@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog, shell, webUtils } from 'electron'
+import { ipcMain, BrowserWindow, app, dialog, shell, webUtils } from 'electron'
 import * as fs from 'node:fs'
 import { loadSettings, saveSettings, applyAutoStart } from './settings'
 import { netClient } from './net/NetClient'
@@ -6,7 +6,8 @@ import { authService } from './auth/AuthService'
 import { driveClient } from './drive/DriveClient'
 import { transferEngine } from './transfer/TransferEngine'
 import { backupManager } from './backup/BackupManager'
-import type { BackupSchedule } from '../shared/types'
+import { updateService } from './update/UpdateService'
+import type { BackupSchedule, UpdateInfo } from '../shared/types'
 import { workerTemplate } from './net/workerTemplate'
 import * as diskCache from './storage/DiskCache'
 import { logger } from './logger'
@@ -209,6 +210,11 @@ export function registerIpc(): void {
   ipcMain.handle('transfer:clearFinished', () => transferEngine.clearFinished())
   ipcMain.handle('transfer:clearAll', () => transferEngine.clearAll())
 
+  // ---- 更新 ----
+  ipcMain.handle('update:check', () => updateService.manualCheck())
+  ipcMain.handle('update:ignore', (_e, version: string) => updateService.ignore(version))
+  ipcMain.handle('update:start', (_e, info: UpdateInfo) => updateService.downloadAndInstall(info))
+
   // ---- 对话框 / 系统 ----
   ipcMain.handle('dialog:pickDownloadDir', async () => {
     const win = BrowserWindow.getAllWindows()[0]
@@ -236,6 +242,7 @@ export function registerIpc(): void {
   ipcMain.handle('backup:setSchedule', (_e, id: string, schedule?: BackupSchedule) => backupManager.setSchedule(id, schedule))
   ipcMain.handle('backup:syncNow', (_e, id: string, manual?: boolean) => backupManager.syncNow(id, manual ?? true))
   ipcMain.handle('app:pathForFile', (_e, file: File) => webUtils.getPathForFile(file))
+  ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:openPath', (_e, p: string) => shell.openPath(p))
   ipcMain.handle('app:showItemInFolder', (_e, p: string) => {
     shell.showItemInFolder(p)

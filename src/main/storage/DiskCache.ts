@@ -4,11 +4,14 @@ import * as path from 'node:path'
 import { app } from 'electron'
 import { loadSettings } from '../settings'
 import { transferEngine } from '../transfer/TransferEngine'
+import { updateCacheDir, updateCacheFiles } from '../update/UpdateService'
 import { logger } from '../logger'
 
 export interface DiskCacheStats {
   /** 孤儿断点文件（不属于任何活动/排队/暂停任务） */
   orphanParts: { count: number; bytes: number }
+  /** 已下载的应用更新安装包（同样纳入清理） */
+  updateCacheBytes: number
   /** 下载目录总占用（含用户已下载的成品文件，仅展示，不清除） */
   downloadDirBytes: number
   downloadDir: string
@@ -66,35 +69,45 @@ export async function stats(): Promise<DiskCacheStats> {
   }
   let downloadDirBytes = 0
   for (const f of all) downloadDirBytes += await fileSize(f)
-  return { orphanParts: { count: orphanCount, bytes: orphanBytes }, downloadDirBytes, downloadDir: dir }
+  let updateCacheBytes = 0
+  for (const f of await updateCacheFiles()) updateCacheBytes += await fileSize(path.join(updateCacheDir(), f))
+  return {
+    orphanParts: { count: orphanCount, bytes: orphanBytes },
+    updateCacheBytes,
+    downloadDirBytes,
+    downloadDir: dir
+  }
 }
 
-/** 清除孤儿断点文件（绝不触碰活动任务与已下载成品），返回释放量 */
+/** 清理缓存：孤儿断点文件 + 已下载的更新安装包（绝不触碰活动任务与已下载成品），返回释放量 */
 export async function clearOrphanParts(): Promise<{ freed: number; count: number }> {
   const { files } = await orphanParts()
+  const updateFiles = await updateCacheFiles()
   let freed = 0
-  for (const f of files) {
+  let count = 0
+  for (const f of [...files, ...updateFiles.map((n) => path.join(updateCacheDir(), n))]) {
     const size = await fileSize(f)
     try {
       await fsp.rm(f, { force: true })
       freed += size
+      count++
     } catch {
-      /* 文件被占用则跳过 */
+      /* 文件被占用（如安装器正在运行）则跳过 */
     }
   }
-  if (files.length) logger.info(`已清理断点残留 ${files.length} 个，释放 ${(freed / 1024 / 1024).toFixed(1)}MB`)
-  return { freed, count: files.length }
+  if (count) logger.info(`已清理缓存 ${count} 个文件，释放 ${(freed / 1024 / 1024).toFixed(1)}MB`)
+  return { freed, count }
 }
 
-/** 阈值自动清理：设置 cacheAutoCleanGB>0 且孤儿断点超阈值时执行（仅清安全项） */
+/** 阈值自动清理：设置 cacheAutoCleanGB>0 且（孤儿断点+更新安装包）超阈值时执行（仅清安全项） */
 export async function maybeAutoClean(): Promise<boolean> {
   const gb = loadSettings().cacheAutoCleanGB ?? 0
   if (gb <= 0) return false
   const st = await stats()
-  if (st.orphanParts.bytes < gb * 1024 ** 3) return false
+  if (st.orphanParts.bytes + st.updateCacheBytes < gb * 1024 ** 3) return false
   const r = await clearOrphanParts()
   logger.info(
-    `缓存自动清理触发（阈值 ${gb}GB）：释放 ${(r.freed / 1024 / 1024).toFixed(1)}MB / ${r.count} 个断点残留`
+    `缓存自动清理触发（阈值 ${gb}GB）：释放 ${(r.freed / 1024 / 1024).toFixed(1)}MB / ${r.count} 个文件`
   )
   return true
 }

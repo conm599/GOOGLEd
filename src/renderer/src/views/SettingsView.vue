@@ -127,7 +127,10 @@
             <el-form-item label="缓存">
               <div class="cache-box">
                 <div class="cache-line">
-                  <span>断点残留：{{ cache.orphanParts.count }} 个（{{ fmtSize(String(cache.orphanParts.bytes)) }}）</span>
+                  <span>
+                    断点残留：{{ cache.orphanParts.count }} 个（{{ fmtSize(String(cache.orphanParts.bytes)) }}）
+                    <template v-if="cache.updateCacheBytes"> · 更新安装包缓存：{{ fmtSize(String(cache.updateCacheBytes)) }}（清理时一并删除）</template>
+                  </span>
                   <el-button size="small" type="danger" plain :loading="clearing" @click="clearCache">清除缓存</el-button>
                 </div>
                 <div class="cache-line">
@@ -162,6 +165,12 @@
       <el-tab-pane label="通用">
         <el-card shadow="never">
           <el-form label-width="120px">
+            <el-form-item label="软件更新">
+              <div style="display: flex; align-items: center; gap: 12px">
+                <el-button :loading="checkingUpdate" @click="checkUpdateNow">检查更新</el-button>
+                <el-text size="small" type="info">当前版本 v{{ appVersion }}（打包版启动时会自动检查）</el-text>
+              </div>
+            </el-form-item>
             <el-form-item label="开机自启动">
               <el-switch v-model="form.autoStart" @change="save" />
               <el-text size="small" type="info" style="margin-left: 12px">开机自动启动 GOOGLEd（打包安装版生效）</el-text>
@@ -176,6 +185,7 @@
         </el-card>
       </el-tab-pane>
     </el-tabs>
+    <UpdateDialog ref="updateDialogRef" />
   </div>
 </template>
 
@@ -185,6 +195,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/app'
 import { fmtSize } from '../utils/format'
 import { withToast, plain } from '../utils/action'
+import UpdateDialog from '../components/UpdateDialog.vue'
 
 const store = useAppStore()
 const logging = ref(false)
@@ -211,12 +222,30 @@ const form = reactive({
   theme: 'light' as 'light' | 'dark'
 })
 
-const cache = ref<{ orphanParts: { count: number; bytes: number }; downloadDirBytes: number; downloadDir: string }>({
+const cache = ref<{ orphanParts: { count: number; bytes: number }; updateCacheBytes: number; downloadDirBytes: number; downloadDir: string }>({
   orphanParts: { count: 0, bytes: 0 },
+  updateCacheBytes: 0,
   downloadDirBytes: 0,
   downloadDir: ''
 })
 const clearing = ref(false)
+
+/* ---------- 检查更新 ---------- */
+const updateDialogRef = ref<InstanceType<typeof UpdateDialog>>()
+const checkingUpdate = ref(false)
+const appVersion = ref('')
+
+async function checkUpdateNow(): Promise<void> {
+  checkingUpdate.value = true
+  try {
+    const r = await window.api.checkUpdate()
+    if (r.status === 'latest') ElMessage.success(`已是最新版本 v${appVersion.value}`)
+    else if (r.status === 'error') ElMessage.error(r.error || '查询更新失败')
+    else if (r.info) updateDialogRef.value?.show(r.info)
+  } finally {
+    checkingUpdate.value = false
+  }
+}
 
 async function loadCache(): Promise<void> {
   try {
@@ -230,7 +259,7 @@ async function clearCache(): Promise<void> {
   clearing.value = true
   try {
     const r = await window.api.cacheClear()
-    ElMessage.success(r.count ? `已清理 ${r.count} 个断点残留，释放 ${fmtSize(String(r.freed))}` : '没有可清理的缓存')
+    ElMessage.success(r.count ? `已清理 ${r.count} 个缓存文件，释放 ${fmtSize(String(r.freed))}` : '没有可清理的缓存')
     await loadCache()
   } finally {
     clearing.value = false
@@ -251,6 +280,7 @@ onMounted(async () => {
   form.clientSecret = s.clientSecret
   void loadCache()
   void window.api.getWorkerTemplate().then((c) => (workerCode.value = c))
+  void window.api.appVersion().then((v) => (appVersion.value = v))
   if (store.auth.loggedIn) {
     try {
       const about = await window.api.driveAbout()

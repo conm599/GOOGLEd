@@ -38,23 +38,29 @@
         <router-view :key="route.path" />
       </WelcomeGate>
     </main>
+    <UpdateDialog ref="updateDialog" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { FolderOpened, Sort, Setting, Box, Delete } from '@element-plus/icons-vue'
 import { useAppStore } from './stores/app'
 import WelcomeGate from './components/WelcomeGate.vue'
+import UpdateDialog from './components/UpdateDialog.vue'
 
 const route = useRoute()
 const store = useAppStore()
 const ready = ref(false)
 const activeCount = computed(() => store.activeCount())
+const updateDialog = ref<InstanceType<typeof UpdateDialog>>()
+let offUpdateAvailable: (() => void) | undefined
 
 onMounted(async () => {
   await store.loadAll()
   ready.value = true
+  offUpdateAvailable = window.api.onUpdateAvailable((info) => updateDialog.value?.show(info))
 })
+onBeforeUnmount(() => offUpdateAvailable?.())
 </script>
