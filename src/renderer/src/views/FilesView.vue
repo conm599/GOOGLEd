@@ -79,7 +79,7 @@
 
     <!-- 网格视图 -->
     <div v-else ref="gridWrapRef" class="thumb-grid" v-loading="loading">
-      <div v-for="f in files" :key="f.id" class="thumb-card"
+      <div v-for="f in files" :key="f.id" class="thumb-card" :data-file-id="isImage(f) && f.thumbnailLink ? f.id : undefined"
         :class="{ 'card-selected': selected.has(f.id), 'cut-out': isCut(f.id), 'drop-target': dragOverId === f.id && isFolder(f.mimeType) }"
         :draggable="!inTrash"
         @dblclick="onActivate(f)" @contextmenu.prevent="showMenu($event.clientX, $event.clientY, f)"
@@ -87,9 +87,12 @@
         @dragstart="onDragStart($event, f)"
         @dragover="onRowDragOver($event, f)" @dragleave="onRowDragLeave(f)" @drop="onRowDrop($event, f)">
         <template v-if="isImage(f) && f.thumbnailLink">
-          <img class="thumb-img" :src="thumbs[f.id] || ''" loading="lazy" draggable="false" />
+          <div class="thumb-box">
+            <img v-if="thumbs[f.id]" class="thumb-img" :src="thumbs[f.id]" draggable="false" />
+            <div v-else class="thumb-placeholder">🖼️</div>
+          </div>
         </template>
-        <div v-else class="thumb-img" style="display: flex; align-items: center; justify-content: center; font-size: 40px">
+        <div v-else class="thumb-box thumb-placeholder" style="font-size: 40px">
           {{ fileIcon(f.mimeType, f.name) }}
         </div>
         <div class="thumb-name" :title="f.name">{{ f.name }}</div>
@@ -143,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, FolderAdd, FolderOpened, Refresh, Delete, Back, Grid, Menu } from '@element-plus/icons-vue'
 import type { DriveFile } from '../../../shared/types'
@@ -604,7 +607,7 @@ async function load(): Promise<void> {
       // 必须显式过滤回收站：files.list 不传 trashed 时会连已删除文件一起返回
       const r = await window.api.driveList({ parentId: currentId.value, orderBy: orderBy.value, pageSize: 200, trashed: false })
       files.value = r.files
-      void loadThumbs()
+      loadThumbs()
     }
   } catch (e) {
     ElMessage.error(`加载失败：${(e as Error).message}`)
@@ -614,14 +617,33 @@ async function load(): Promise<void> {
   }
 }
 
-async function loadThumbs(): Promise<void> {
-  const targets = files.value.filter((f) => isImage(f) && f.thumbnailLink)
-  for (const f of targets.slice(0, 60)) {
-    if (thumbs.value[f.id]) continue
-    void window.api.thumbGet(f.id).then((d) => {
-      if (d) thumbs.value[f.id] = d
-    })
-  }
+/* ---------- 缩略图懒加载：IntersectionObserver 只加载滚进可视区的卡片，滚到哪加载到哪 ---------- */
+let thumbObserver: IntersectionObserver | null = null
+
+function loadThumbs(): void {
+  thumbObserver ??= new IntersectionObserver(
+    (entries) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue
+        const el = en.target as HTMLElement
+        thumbObserver?.unobserve(el)
+        const id = el.dataset.fileId
+        if (!id || thumbs.value[id]) continue
+        void window.api.thumbGet(id).then((d) => {
+          if (d) thumbs.value[id] = d
+        })
+      }
+    },
+    { rootMargin: '400px' } // 提前 400px 预载，正常速度滚动时基本无感
+  )
+  void nextTick(() => {
+    if (view.value !== 'grid') return
+    const wrap = gridWrapRef.value
+    if (!wrap) return
+    for (const el of wrap.querySelectorAll<HTMLElement>('.thumb-card[data-file-id]')) {
+      thumbObserver?.observe(el)
+    }
+  })
 }
 
 function doSearch(): void {
@@ -831,6 +853,10 @@ watch(currentId, () => {
   clearSelection()
   void load()
 })
+// 切到宫格视图时（重新）挂观察器，让可见卡片的缩略图开始加载
+watch(view, (v) => {
+  if (v === 'grid') loadThumbs()
+})
 
 onMounted(() => {
   void load()
@@ -847,6 +873,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keyup', onKeyup)
   document.removeEventListener('contextmenu', onBlankContext)
   offTrashProgress?.()
+  thumbObserver?.disconnect()
+  thumbObserver = null
 })
 </script>
 
