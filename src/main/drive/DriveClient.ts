@@ -235,6 +235,57 @@ export class DriveClient {
   }
 
   /**
+   * 在指定文件夹及其全部子目录里按文件名搜索（资源管理器语义）。
+   * Drive API 不支持「某文件夹及其后代」过滤，只能先 BFS 收集子文件夹 id 再逐个查询；结果上限 cap。
+   */
+  async searchInFolder(rootId: string, query: string, cap = 500): Promise<ListResult> {
+    // 1. 收集 root 及全部子孙文件夹（上限 200 个，防止巨型目录树拖死搜索）
+    const folderIds: string[] = [rootId]
+    let frontier = [rootId]
+    while (frontier.length && folderIds.length < 200) {
+      const next: string[] = []
+      for (const fid of frontier) {
+        let pageToken: string | undefined
+        do {
+          const params = new URLSearchParams({
+            q: `'${escapeQuery(fid)}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            pageSize: '1000',
+            fields: 'nextPageToken,files(id)',
+            supportsAllDrives: 'true'
+          })
+          if (pageToken) params.set('pageToken', pageToken)
+          const r = await this.call<{ files?: { id: string }[]; nextPageToken?: string }>(`${API}/files?${params}`)
+          for (const f of r.files || []) {
+            folderIds.push(f.id)
+            next.push(f.id)
+          }
+          pageToken = r.nextPageToken
+        } while (pageToken)
+      }
+      frontier = next
+    }
+    // 2. 逐个文件夹按名称匹配（文件夹本身也能被搜到）
+    const out: DriveFile[] = []
+    for (const fid of folderIds) {
+      let pageToken: string | undefined
+      do {
+        const params = new URLSearchParams({
+          q: `'${escapeQuery(fid)}' in parents and name contains '${escapeQuery(query)}' and trashed=false`,
+          pageSize: '1000',
+          fields: 'nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink,shared,trashed,starred,parents)',
+          supportsAllDrives: 'true'
+        })
+        if (pageToken) params.set('pageToken', pageToken)
+        const r = await this.call<{ files?: DriveFile[]; nextPageToken?: string }>(`${API}/files?${params}`)
+        for (const f of r.files || []) out.push({ ...f, parentId: f.parents?.[0] })
+        pageToken = out.length < cap ? r.nextPageToken : undefined
+      } while (pageToken)
+      if (out.length >= cap) break
+    }
+    return { files: out.slice(0, cap) }
+  }
+
+  /**
    * 清空回收站：v3 没有 emptyTrash 端点，只能逐个删。
    * 每轮先拉全量 trashed id 列表再并发删除；删完重新查询，直到查不到为止
    * （列表是最终一致+可能被 CF 缓存，单轮删不干净；某轮一个都删不动时停止防止死循环）。

@@ -97,6 +97,7 @@ export function registerIpc(): void {
     })
   )
   ipcMain.handle('drive:listTrash', () => driveClient.listTrash())
+  ipcMain.handle('drive:search', (_e, rootId: string, query: string) => driveClient.searchInFolder(rootId, query))
   ipcMain.handle('drive:createFolder', (_e, name: string, parentId: string) => driveClient.createFolder(name, parentId))
   ipcMain.handle('drive:copy', (_e, fileId: string, parentId: string) => driveClient.copy(fileId, parentId))
   ipcMain.handle(

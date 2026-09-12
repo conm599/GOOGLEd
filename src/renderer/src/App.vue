@@ -22,6 +22,9 @@
         <el-menu-item index="/backup">
           <el-icon><Box /></el-icon>备份
         </el-menu-item>
+        <el-menu-item index="/trash">
+          <el-icon><Delete /></el-icon>回收站
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>设置
         </el-menu-item>
@@ -32,7 +35,7 @@
     </aside>
     <main class="main">
       <WelcomeGate v-if="ready">
-        <router-view />
+        <router-view :key="route.path" />
       </WelcomeGate>
     </main>
   </div>
@@ -41,7 +44,7 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { FolderOpened, Sort, Setting, Box } from '@element-plus/icons-vue'
+import { FolderOpened, Sort, Setting, Box, Delete } from '@element-plus/icons-vue'
 import { useAppStore } from './stores/app'
 import WelcomeGate from './components/WelcomeGate.vue'
 

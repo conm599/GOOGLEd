@@ -44,6 +44,8 @@ const api = {
     return () => ipcRenderer.removeListener('share:progress', listener)
   },
   driveListTrash: (): Promise<{ files: DriveFile[] }> => ipcRenderer.invoke('drive:listTrash'),
+  driveSearch: (rootId: string, query: string): Promise<{ files: DriveFile[] }> =>
+    ipcRenderer.invoke('drive:search', rootId, query),
   createFolder: (name: string, parentId: string): Promise<DriveFile> => ipcRenderer.invoke('drive:createFolder', name, parentId),
   driveCopy: (fileId: string, parentId: string): Promise<DriveFile> => ipcRenderer.invoke('drive:copy', fileId, parentId),
   driveCopyFolder: (folderId: string, name: string, parentId: string): Promise<DriveFile> =>

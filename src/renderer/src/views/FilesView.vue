@@ -6,13 +6,19 @@
         <el-button type="primary" :icon="Upload" @click="upload(false)">上传文件</el-button>
         <el-button type="primary" plain :icon="FolderOpened" @click="upload(true)">上传文件夹</el-button>
         <el-button :icon="FolderAdd" @click="newFolder">新建文件夹</el-button>
+        <el-input
+          v-model="searchText"
+          clearable
+          :prefix-icon="Search"
+          placeholder="搜索本文件夹（含子目录），回车"
+          style="width: 250px"
+          @keyup.enter="doSearch"
+          @clear="doSearch"
+        />
       </template>
-      <el-button :icon="Refresh" @click="load" :loading="loading">刷新</el-button>
-      <el-button v-if="!inTrash" :icon="Delete" @click="showTrash = !showTrash">
-        {{ showTrash ? '返回文件' : '回收站' }}
-      </el-button>
-      <el-button v-else :icon="Back" @click="showTrash = false">返回文件</el-button>
+      <el-button v-else :icon="Back" @click="leaveTrash">返回文件</el-button>
       <el-button v-if="inTrash" type="danger" plain :icon="Delete" :loading="emptying" @click="emptyTrash">清空回收站</el-button>
+      <div style="flex: 1"></div>
 
       <el-select v-model="orderBy" style="width: 150px" @change="load">
         <el-option label="最近修改" value="folder,modifiedTime desc" />
@@ -34,7 +40,7 @@
       </el-breadcrumb-item>
     </el-breadcrumb>
     <el-alert v-if="searching && !inTrash" type="info" :closable="false" style="margin-bottom: 10px"
-      :title="`「${searchText}」在当前文件夹的搜索结果`" />
+      :title="`「${searchText}」的搜索结果（当前文件夹及全部子目录，最多 500 条）`" />
     <el-alert v-if="inTrash && emptying" type="warning" :closable="false" style="margin-bottom: 10px"
       :title="emptyProgress || '正在清空回收站…'" />
 
@@ -147,8 +153,9 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload, FolderAdd, FolderOpened, Refresh, Delete, Back, Grid, Menu } from '@element-plus/icons-vue'
+import { Upload, FolderAdd, FolderOpened, Delete, Back, Grid, Menu, Search } from '@element-plus/icons-vue'
 import type { DriveFile } from '../../../shared/types'
 import { useAppStore } from '../stores/app'
 import { fmtSize, fmtTime, fileIcon, isFolder } from '../utils/format'
@@ -157,6 +164,8 @@ import ShareDialog from '../components/ShareDialog.vue'
 import PreviewDialog from '../components/PreviewDialog.vue'
 import FolderPickerDialog from '../components/FolderPickerDialog.vue'
 
+const props = defineProps<{ initialTrash?: boolean }>()
+const router = useRouter()
 const store = useAppStore()
 
 const files = ref<DriveFile[]>([])
@@ -164,7 +173,7 @@ const loading = ref(false)
 const crumbs = ref<DriveFile[]>([])
 const searchText = ref('')
 const searching = ref(false)
-const showTrash = ref(false)
+const showTrash = ref(!!props.initialTrash)
 const view = ref<'list' | 'grid'>('list')
 const orderBy = ref('folder,modifiedTime desc')
 const thumbs = ref<Record<string, string>>({})
@@ -602,9 +611,9 @@ async function load(): Promise<void> {
       files.value = r.files
       nextPageToken = undefined
     } else if (searching.value) {
-      const r = await window.api.driveList({ parentId: currentId.value, query: searchText.value, orderBy: orderBy.value, pageSize: 100, trashed: false })
+      const r = await window.api.driveSearch(currentId.value, searchText.value)
       files.value = r.files
-      nextPageToken = r.nextPageToken
+      nextPageToken = undefined
     } else {
       // 必须显式过滤回收站：files.list 不传 trashed 时会连已删除文件一起返回
       const r = await window.api.driveList({ parentId: currentId.value, orderBy: orderBy.value, pageSize: 100, trashed: false })
@@ -694,6 +703,12 @@ function loadThumbs(): void {
 function doSearch(): void {
   searching.value = !!searchText.value
   void load()
+}
+
+/** 从回收站视图返回文件列表（回收站现在是侧边栏的独立入口） */
+function leaveTrash(): void {
+  showTrash.value = false
+  void router.push('/')
 }
 
 function goTo(index: number): void {
@@ -873,6 +888,18 @@ function showMenu(x: number, y: number, f: DriveFile): void {
   ctx.visible = true
   ctxBlank.visible = false
   window.addEventListener('click', closeCtx, { once: true })
+  clampMenu()
+}
+
+/** 菜单渲染后测量实际尺寸，靠边就往回收，保证完整显示在窗口内 */
+function clampMenu(): void {
+  void nextTick(() => {
+    const el = document.querySelector<HTMLElement>('.ctx-menu')
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (ctx.x + rect.width > window.innerWidth - 6) ctx.x = Math.max(6, window.innerWidth - rect.width - 6)
+    if (ctx.y + rect.height > window.innerHeight - 6) ctx.y = Math.max(6, window.innerHeight - rect.height - 6)
+  })
 }
 
 function closeCtx(): void {
@@ -888,6 +915,7 @@ function onBlankContext(ev: MouseEvent): void {
   ctxBlank.visible = true
   ctx.visible = false
   window.addEventListener('click', () => (ctxBlank.visible = false), { once: true })
+  clampMenu()
 }
 
 watch(showTrash, () => {
