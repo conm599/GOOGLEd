@@ -92,8 +92,8 @@
             <div v-else class="thumb-placeholder">🖼️</div>
           </div>
         </template>
-        <div v-else class="thumb-box thumb-placeholder" style="font-size: 40px">
-          {{ fileIcon(f.mimeType, f.name) }}
+        <div v-else class="thumb-box">
+          <div class="thumb-placeholder" style="font-size: 40px">{{ fileIcon(f.mimeType, f.name) }}</div>
         </div>
         <div class="thumb-name" :title="f.name">{{ f.name }}</div>
       </div>
