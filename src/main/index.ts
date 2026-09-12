@@ -61,13 +61,16 @@ if (!gotLock) {
   app.quit()
 } else {
   registerStreamScheme() // 必须在 ready 之前注册特权协议
-  app.on('second-instance', () => showWindow())
+  app.on('second-instance', (_e, argv) => {
+    // 开机时重复的自启动实例带 --hidden：静默退出让位，不弹窗（否则静默启动失效）
+    if (!argv.includes('--hidden')) showWindow()
+  })
 
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null) // 移除默认菜单栏（File/Edit/View/Window/Help）
     logger.info('GOOGLEd 启动', { version: app.getVersion(), silent: SILENT_START })
     await netClient.applySettings(loadSettings())
-    applyAutoStart(loadSettings())
+    await applyAutoStart(loadSettings())
     registerStreamHandler()
     registerIpc()
     transferEngine.start()

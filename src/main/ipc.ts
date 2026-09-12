@@ -23,7 +23,7 @@ export function registerIpc(): void {
     const s = { ...loadSettings(), ...patch }
     saveSettings(s)
     await netClient.applySettings(s)
-    applyAutoStart(s)
+    void applyAutoStart(s)
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send('settings:changed', s)
     // 阈值改动后立即评估一次自动清理
     void diskCache.maybeAutoClean()
