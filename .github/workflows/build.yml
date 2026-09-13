@@ -11,6 +11,8 @@ jobs:
   # 版本号统一在这里决定（打 tag 用 tag 版本；日常 push 自动 +1），win/linux 两个产物共用同一版本
   version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       app_version: ${{ steps.ver.outputs.app_version }}
     steps:
