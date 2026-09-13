@@ -112,7 +112,10 @@
         <el-card shadow="never">
           <el-form label-width="160px">
             <el-form-item label="同时传输任务数">
-              <el-slider v-model="form.concurrency" :min="1" :max="6" show-step style="max-width: 320px" @change="save" />
+              <el-slider v-model="form.concurrency" :min="1" :max="32" show-step style="max-width: 320px" @change="save" />
+              <el-text size="small" type="info" style="display: block; margin-top: 4px">
+                多小文件场景调高并发收益明显；遇到 403/429 限频时适当调低
+              </el-text>
             </el-form-item>
             <el-form-item label="分块大小（MB）">
               <el-select v-model="form.chunkSizeMB" style="width: 160px" @change="save">
