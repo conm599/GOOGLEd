@@ -100,7 +100,7 @@ jobs:
       - name: Package tarball
         run: |
           mkdir -p dist-pkg/googled
-          cp packages/linux/dist/googled.mjs dist-pkg/googled/googled
+          cp packages/linux/dist/googled dist-pkg/googled/googled
           cp docs/linux-cli.md dist-pkg/googled/README-LINUX.md
           tar -czf "googled-linux-x64.tar.gz" -C dist-pkg googled
 
