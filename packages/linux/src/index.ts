@@ -793,6 +793,17 @@ let keepAlive = false
 
 async function main(): Promise<void> {
   initLinuxPlatform()
+  // Ctrl+C / kill 前同步落盘传输任务（合并写最长 1.8s，直接退出会丢状态）
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(sig, () => {
+      try {
+        transferEngine.flushSync()
+      } catch {
+        /* ignore */
+      }
+      process.exit(130)
+    })
+  }
   const [cmd, ...rest] = process.argv.slice(2)
   const args = parseArgs(rest)
   if (!cmd || cmd === 'help' || args.h || args.help) {

@@ -37,10 +37,38 @@ export class TaskStore {
     }, 1000)
   }
 
-  private flush(): void {
+  /** 立即落盘（取消合并写）：清除任务等关键操作用，防止随后退出/崩溃丢失状态导致任务复活 */
+  async saveNow(tasks: TransferTask[]): Promise<void> {
+    this.pending = tasks
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+    await this.flush()
+  }
+
+  /** 同步落盘：应用退出前调用（异步写来不及等） */
+  saveSync(tasks: TransferTask[]): void {
+    this.pending = tasks
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+    try {
+      fs.mkdirSync(DIR(), { recursive: true })
+      const tmp = FILE() + '.tmp'
+      fs.writeFileSync(tmp, JSON.stringify(tasks), 'utf-8')
+      fs.renameSync(tmp, FILE())
+      this.pending = null
+    } catch (e) {
+      logger.error('传输任务同步保存失败', e)
+    }
+  }
+
+  private flush(): Promise<void> {
     const tasks = this.pending
     this.pending = null
-    if (!tasks) return
+    if (!tasks) return this.queue
     this.queue = this.queue
       .then(async () => {
         await fsp.mkdir(DIR(), { recursive: true })
@@ -49,5 +77,6 @@ export class TaskStore {
         await fsp.rename(tmp, FILE())
       })
       .catch((e) => logger.error('传输任务保存失败', e))
+    return this.queue
   }
 }

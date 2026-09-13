@@ -253,17 +253,19 @@ class TransferEngine {
     this.tasks.delete(id)
     this.persistSoon()
     this.emit(true)
+    await this.store.saveNow(this.list())
   }
 
   clearFinished(): void {
     for (const [id, t] of this.tasks) {
       if (t.status === 'done' || t.status === 'canceled') this.tasks.delete(id)
     }
-    this.persistSoon()
     this.emit(true)
+    void this.store.saveNow(this.list())
   }
 
-  /** 清除所有任务：中断进行中的（上传/下载/排队全部移除，断点文件一并清理） */
+  /** 清除所有任务：中断进行中的（上传/下载/排队全部移除，断点文件一并清理）。
+   * 立即落盘：若走合并写，用户清完就退出应用（关窗进托盘→托盘退出）会丢写盘，重启后全部任务复活 */
   async clearAll(): Promise<void> {
     for (const [id, t] of [...this.tasks]) {
       if (t.status === 'running') this.controllers.get(id)?.abort()
@@ -274,8 +276,13 @@ class TransferEngine {
       this.tasks.delete(id)
       this.controllers.delete(id)
     }
-    this.persistSoon()
     this.emit(true)
+    await this.store.saveNow(this.list())
+  }
+
+  /** 退出前同步落盘（before-quit / CLI 退出钩子调用）：合并写最长 1.8s 才落盘，直接退出会丢 */
+  flushSync(): void {
+    this.store.saveSync(this.list())
   }
 
   /** 按并发数补位启动队列任务 */

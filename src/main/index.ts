@@ -88,6 +88,7 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     quitting = true
+    transferEngine.flushSync() // 合并写最长 1.8s 才落盘，退出前同步兜底（清完任务就退出 → 任务复活）
   })
 
   app.on('window-all-closed', () => {
