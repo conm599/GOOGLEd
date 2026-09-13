@@ -1,6 +1,6 @@
 {
   "name": "googled",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "面向中国用户的 Google 云盘桌面客户端（Windows GUI + Linux CLI），支持断点续传、Cloudflare Workers 反代加速",
   "main": "out/main/index.js",
   "author": "GOOGLEd",
