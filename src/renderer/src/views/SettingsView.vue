@@ -171,6 +171,19 @@
                 <el-text size="small" type="info">当前版本 v{{ appVersion }}（打包版启动时会自动检查）</el-text>
               </div>
             </el-form-item>
+            <el-form-item label="下载代理">
+              <div style="width: 100%; max-width: 520px">
+                <el-input
+                  v-model="form.updateProxy"
+                  clearable
+                  placeholder="留空 = 自动探测本机代理；如 http://127.0.0.1:10808"
+                  @change="save"
+                />
+                <el-text size="small" type="info" style="margin-top: 4px; display: inline-block; line-height: 1.5">
+                  大陆访问 GitHub 下载更新慢时，填你本机代理端口（和 v2ray/clash 的 HTTP 或 SOCKS 端口一致，支持 socks5:// 前缀）；留空时若本机在跑常见代理（10808/7890 等）会自动探测套用，都不可用才直连。只影响更新下载
+                </el-text>
+              </div>
+            </el-form-item>
             <el-form-item label="开机自启动">
               <el-switch v-model="form.autoStart" @change="save" />
               <el-text size="small" type="info" style="margin-left: 12px">开机自动启动 GOOGLEd（打包安装版生效）</el-text>
@@ -219,6 +232,7 @@ const form = reactive({
   cacheAutoCleanGB: 0,
   autoStart: false,
   autoStartHidden: false,
+  updateProxy: '',
   theme: 'light' as 'light' | 'dark'
 })
 

@@ -27,6 +27,8 @@ export interface Settings {
   autoStartHidden: boolean
   /** 用户点过「忽略这次更新」的版本号，之后不再弹该版本的更新提示 */
   ignoredUpdateVersion?: string
+  /** 更新包下载代理（如 http://127.0.0.1:10808）。留空=代理/系统代理模式跟随主通道，workers/直连模式自动探测本机常见代理端口 */
+  updateProxy: string
   theme: 'light' | 'dark'
 }
 
@@ -59,6 +61,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cacheAutoCleanGB: 0,
   autoStart: false,
   autoStartHidden: false,
+  updateProxy: '',
   theme: 'light'
 }
 

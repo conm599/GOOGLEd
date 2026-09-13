@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, net, session } from 'electron'
 import { spawn } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -8,6 +8,8 @@ import { logger } from '../logger'
 import type { UpdateInfo } from '../../shared/types'
 
 const RELEASE_API = 'https://api.github.com/repos/conm599/GOOGLEd/releases/latest'
+/** 常见本机代理端口（v2rayN 10808/10809、clash 7890/7897、通用 socks 1080） */
+const PROBE_PORTS = [10808, 7890, 10809, 7897, 1080]
 
 /** 下载的安装包存放处：userData/cache/update，纳入磁盘缓存清理（手动清理 + 阈值自动清理） */
 export function updateCacheDir(): string {
@@ -32,13 +34,17 @@ function cmpVersion(a: string, b: string): number {
 /**
  * 应用内更新：
  * - 查询 GitHub Releases 最新版（公共仓库，无需 token）
- * - 下载安装包到缓存目录（netClient 出口，代理模式同样可用），完成后自动拉起安装器并退出应用
+ * - 下载安装包到缓存目录（纳入缓存清理），完成后自动拉起安装器并退出应用
+ * - 大陆访问 GitHub 慢：下载按「设置里的代理 > 自动探测到的本机代理 > 直连」多通道尝试，
+ *   每个通道失败自动换下一个并断点续传；45 秒无数据视为通道停滞
  * - 打包版启动 15 秒后静默检查（每 24h 一次），被忽略的版本不再提示；开发版只手动检查
  */
 class UpdateService {
   private downloading = false
+  /** 自动探测到的本机代理（undefined=本次运行还没探测过；null=没探测到） */
+  private probedProxy: string | null | undefined = undefined
 
-  /** 查询最新版；info=null 表示已是最新 */
+  /** 查询最新版；返回 status: latest（已是最新）/ available（有更新）/ error */
   async manualCheck(): Promise<{ status: 'latest' | 'available' | 'error'; info?: UpdateInfo; error?: string }> {
     try {
       const res = await netClient.request(RELEASE_API, {
@@ -55,7 +61,8 @@ class UpdateService {
       if (!version) return { status: 'error', error: '未获取到最新版本号' }
       if (cmpVersion(version, app.getVersion()) <= 0) return { status: 'latest' }
       const assets = data.assets || []
-      const asset = assets.find((a) => a.name.endsWith('.exe') && a.name.includes('Setup')) || assets.find((a) => a.name.endsWith('.exe'))
+      const asset =
+        assets.find((a) => a.name.endsWith('.exe') && a.name.includes('Setup')) || assets.find((a) => a.name.endsWith('.exe'))
       if (!asset) return { status: 'error', error: '最新版本没有可用的安装包' }
       return {
         status: 'available',
@@ -78,7 +85,79 @@ class UpdateService {
     logger.info('用户忽略了更新', version)
   }
 
-  /** 下载安装包（带进度推送），完成后自动运行安装器并退出应用 */
+  /** 更新下载应尝试的通道，按优先级：手动配置的代理 > 自动探测到的本机代理 > 直连（主会话）。
+   * 代理/系统代理模式下主会话本身已带代理，直接走主通道 */
+  private async downloadCandidates(): Promise<(string | null)[]> {
+    const s = loadSettings()
+    const manual = (s.updateProxy || '').trim()
+    if (manual) return [manual]
+    if (s.netMode === 'proxy' || s.netMode === 'system') return [null]
+    const probed = await this.autoProbeProxies()
+    return [...probed, null]
+  }
+
+  /** 探测本机常见代理端口（连接被拒=秒失败；有响应即视为可用），结果本次运行内缓存 */
+  private async autoProbeProxies(): Promise<string[]> {
+    if (this.probedProxy !== undefined) return this.probedProxy ? [this.probedProxy] : []
+    const probeSes = session.fromPartition('update-dl-probe')
+    const found: string[] = []
+    for (const port of PROBE_PORTS) {
+      for (const rules of [`http=127.0.0.1:${port};https=127.0.0.1:${port}`, `socks5://127.0.0.1:${port}`]) {
+        try {
+          await probeSes.setProxy({ proxyRules: rules })
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 2500)
+          try {
+            const res = await net.fetch('https://github.com', {
+              session: probeSes,
+              signal: controller.signal,
+              cache: 'no-store'
+            } as RequestInit)
+            void res.body?.cancel()
+            if (res.status > 0) {
+              found.push(rules)
+              break
+            }
+          } finally {
+            clearTimeout(timer)
+          }
+        } catch {
+          /* 该端口/协议不通，继续探测 */
+        }
+        if (found.length) break
+      }
+      if (found.length) break
+    }
+    this.probedProxy = found[0] ?? null
+    logger.info('更新下载通道探测', this.probedProxy ? `发现本机代理 ${this.probedProxy}` : '未发现本机代理，使用直连')
+    return found
+  }
+
+  /** 用指定代理（null=主会话，跟随代理/系统代理模式）发起请求；rangeStart 用于断点续传 */
+  private async fetchVia(url: string, proxy: string | null, timeoutMs: number, rangeStart?: number): Promise<Response> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const headers: Record<string, string> = {}
+      if (rangeStart !== undefined) headers.range = `bytes=${rangeStart}-`
+      if (proxy === null) {
+        return await netClient.request(url, { timeoutMs, headers, signal: controller.signal })
+      }
+      const ses = session.fromPartition('update-dl')
+      await ses.setProxy({ proxyRules: proxy })
+      return await net.fetch(url, {
+        session: ses,
+        headers,
+        cache: 'no-store',
+        signal: controller.signal
+      } as RequestInit)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** 下载安装包（带进度推送），完成后自动运行安装器并退出应用。
+   * 多通道自动切换 + Range 断点续传 + 45 秒无数据看门狗 */
   async downloadAndInstall(info: UpdateInfo): Promise<void> {
     if (this.downloading) throw new Error('已有更新正在下载')
     this.downloading = true
@@ -90,36 +169,77 @@ class UpdateService {
       for (const f of await updateCacheFiles()) {
         if (f !== info.assetName) await fsp.rm(path.join(dir, f), { force: true }).catch(() => undefined)
       }
-      const res = await netClient.request(info.assetUrl, { timeoutMs: 60000 })
-      if (!res.ok) throw new Error(`下载失败（HTTP ${res.status}）`)
-      const total = Number(res.headers.get('content-length')) || 0
-      const reader = res.body!.getReader()
-      const fh = await fsp.open(dest, 'w')
-      let received = 0
-      let lastEmit = 0
-      try {
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          await fh.write(value)
-          received += value.byteLength
-          const now = Date.now()
-          if (now - lastEmit > 300) {
-            lastEmit = now
-            this.emitProgress(received, total)
-          }
+      const candidates = await this.downloadCandidates()
+      let lastError: Error | null = null
+      for (const proxy of candidates) {
+        try {
+          logger.info(`更新包下载通道：${proxy || '直连（主会话）'}`)
+          await this.downloadOnce(info, dest, proxy)
+          logger.info(`更新包下载完成：${dest}，启动安装器`)
+          // 分离进程拉起 NSIS 安装器，退出应用让安装向导接管
+          const child = spawn(dest, [], { detached: true, stdio: 'ignore', cwd: dir })
+          child.unref()
+          setTimeout(() => app.quit(), 800)
+          return
+        } catch (e) {
+          lastError = e as Error
+          logger.warn(`更新包下载失败（${proxy || '直连'}）`, (e as Error).message)
+          // 半截文件保留：下一通道用 Range 从断点接着下
         }
-      } finally {
-        await fh.close()
       }
-      this.emitProgress(received, received)
-      logger.info(`更新包下载完成：${dest}（${(received / 1024 / 1024).toFixed(1)}MB），启动安装器`)
-      // 分离进程拉起 NSIS 安装器，退出应用让安装向导接管
-      const child = spawn(dest, [], { detached: true, stdio: 'ignore', cwd: dir })
-      child.unref()
-      setTimeout(() => app.quit(), 800)
+      throw new Error(
+        `下载失败：${lastError?.message || '所有通道均不可用'}。可在 设置→通用→下载代理 里填写本机代理端口后重试`
+      )
     } finally {
       this.downloading = false
+    }
+  }
+
+  /** 单通道完整下载（含 Range 续传与 45 秒空闲看门狗）；失败抛错由上层换通道 */
+  private async downloadOnce(info: UpdateInfo, dest: string, proxy: string | null): Promise<void> {
+    const existing = (await fsp.stat(dest).catch(() => null))?.size ?? 0
+    const res = await this.fetchVia(info.assetUrl, proxy, 60000, existing > 0 ? existing : undefined)
+    if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`)
+    let offset = existing
+    if (res.status === 200) offset = 0 // 服务端不支持 Range（返回全量）→ 从头写
+    const contentRange = res.headers.get('content-range')
+    const total =
+      Number(contentRange?.split('/')[1]) || offset + (Number(res.headers.get('content-length')) || 0)
+    const reader = res.body!.getReader()
+    const fh = await fsp.open(dest, offset > 0 ? 'r+' : 'w')
+    let received = offset
+    let lastEmit = 0
+    let idleReject: (e: Error) => void = () => undefined
+    let idleTimer: NodeJS.Timeout | null = null
+    const resetIdle = (): void => {
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => idleReject(new Error('下载停滞（45 秒无数据）')), 45000)
+    }
+    const watchdog = new Promise<never>((_, reject) => {
+      idleReject = reject
+    })
+    resetIdle()
+    try {
+      for (;;) {
+        const { done, value } = await Promise.race([reader.read(), watchdog])
+        if (done) break
+        await fh.write(value!)
+        received += value!.byteLength
+        resetIdle()
+        const now = Date.now()
+        if (now - lastEmit > 300) {
+          lastEmit = now
+          this.emitProgress(received, total || received)
+        }
+      }
+      this.emitProgress(received, total || received)
+    } catch (e) {
+      clearTimeout(idleTimer!)
+      await reader.cancel().catch(() => undefined)
+      throw e
+    } finally {
+      clearTimeout(idleTimer!)
+      await fh.close()
     }
   }
 
