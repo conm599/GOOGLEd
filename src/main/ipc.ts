@@ -192,6 +192,7 @@ export function registerIpc(): void {
     transferEngine.addUploadsFromPaths(paths, parentId)
   )
   ipcMain.handle('transfer:addDownload', (_e, file, destDir?: string) => transferEngine.addDownload(file, destDir))
+  ipcMain.handle('transfer:addDownloadRecursive', (_e, file) => transferEngine.addDownloadRecursive(file))
   ipcMain.handle('transfer:list', () => transferEngine.list())
   ipcMain.handle('transfer:pause', (_e, id: string) => transferEngine.pause(id))
   ipcMain.handle('transfer:resume', (_e, id: string) => transferEngine.resume(id))

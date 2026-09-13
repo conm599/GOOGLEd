@@ -217,20 +217,6 @@ async function cmdUpload(args: Args): Promise<void> {
   process.exit(r.error ? 1 : 0)
 }
 
-/** 递归收集云端文件夹下的所有文件，加入下载队列 */
-async function enqueueFolderDownloads(folderId: string, destDir: string): Promise<number> {
-  let count = 0
-  const r = await driveClient.list({ parentId: folderId, pageSize: 1000, trashed: false })
-  for (const f of r.files) {
-    if (f.mimeType === FOLDER_MIME) {
-      count += await enqueueFolderDownloads(f.id, path.join(destDir, f.name))
-    } else {
-      count += await transferEngine.addDownload(f, destDir)
-    }
-  }
-  return count
-}
-
 async function cmdDownload(args: Args): Promise<void> {
   if (!args._.length) die('用法：googled download <远程路径或 id:xxx...> [-d 本地目录]')
   await boot()
@@ -241,7 +227,7 @@ async function cmdDownload(args: Args): Promise<void> {
   let count = 0
   for (const t of args._) {
     const e = await resolveEntry(t)
-    if (e.isFolder) count += await enqueueFolderDownloads(e.id, dest)
+    if (e.isFolder) count += await transferEngine.addDownloadFolderContents(e.id, dest)
     else count += await transferEngine.addDownload(e.file as import('@core/types').DriveFile, dest)
   }
   if (!count) {

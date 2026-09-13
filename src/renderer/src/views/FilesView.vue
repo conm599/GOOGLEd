@@ -121,6 +121,7 @@
       <div v-if="ctx.visible" class="ctx-menu" :style="{ left: ctx.x + 'px', top: ctx.y + 'px' }">
         <template v-if="!inTrash">
           <div v-if="!isFolder(ctx.file?.mimeType || '')" class="ctx-item" @click="download(ctx.file!)">下载（断点续传）</div>
+          <div v-else class="ctx-item" @click="downloadFolder(ctx.file!)">下载文件夹（含子文件夹）</div>
           <div v-if="isFolder(ctx.file?.mimeType || '')" class="ctx-item" @click="onActivate(ctx.file!)">打开</div>
           <div class="ctx-item" @click="copySelFromCtx">复制</div>
           <div class="ctx-item" @click="cutSelFromCtx">剪切</div>
@@ -785,6 +786,14 @@ async function download(f: DriveFile): Promise<void> {
   await withToast(async () => {
     await window.api.addDownload(plain(f))
     ElMessage.success(`「${f.name}」已加入下载队列`)
+  }, '下载失败')
+}
+
+async function downloadFolder(f: DriveFile): Promise<void> {
+  await withToast(async () => {
+    const n = await window.api.addDownloadRecursive(plain(f))
+    if (!n) ElMessage.info('「' + f.name + '」是空文件夹，没有可下载的文件')
+    else ElMessage.success(`已入队 ${n} 个文件（保持子目录结构，断点续传）`)
   }, '下载失败')
 }
 

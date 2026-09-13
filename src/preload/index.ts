@@ -122,6 +122,8 @@ const api = {
     ipcRenderer.invoke('transfer:addUploadPaths', paths, parentId),
   addDownload: (file: DriveFile, destDir?: string): Promise<number> =>
     ipcRenderer.invoke('transfer:addDownload', plain(file), destDir),
+  addDownloadRecursive: (file: DriveFile): Promise<number> =>
+    ipcRenderer.invoke('transfer:addDownloadRecursive', plain(file)),
   transferList: (): Promise<TransferTask[]> => ipcRenderer.invoke('transfer:list'),
   pauseTask: (id: string): Promise<void> => ipcRenderer.invoke('transfer:pause', id),
   resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('transfer:resume', id),

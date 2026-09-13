@@ -9,6 +9,9 @@
         <el-radio-button value="done">已完成</el-radio-button>
       </el-radio-group>
       <div style="flex: 1"></div>
+      <el-button v-if="filter === 'error'" type="primary" @click="retryAllFailed" :disabled="!sumFailed">
+        全部重试（{{ sumFailed }}）
+      </el-button>
       <el-button @click="clearFinished" :disabled="!finishedCount">清除已完成</el-button>
       <el-button type="danger" plain @click="clearAll" :disabled="!store.tasks.length">清除所有任务</el-button>
     </div>
@@ -204,6 +207,14 @@ function statusText(t: TransferTask): string {
 
 function pause(id: string): void {
   void withToast(() => window.api.pauseTask(id), '暂停失败')
+}
+async function retryAllFailed(): Promise<void> {
+  const errs = store.tasks.filter((t) => t.status === 'error')
+  if (!errs.length) return
+  await withToast(async () => {
+    for (const t of errs) await window.api.resumeTask(t.id)
+    ElMessage.success(`已重新排队 ${errs.length} 个失败任务`)
+  }, '重试失败')
 }
 function resume(id: string): void {
   void withToast(() => window.api.resumeTask(id), '继续失败')

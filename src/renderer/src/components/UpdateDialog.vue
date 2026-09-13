@@ -17,6 +17,7 @@
     <template #footer>
       <template v-if="!downloading">
         <el-button @click="ignore">忽略这次更新</el-button>
+        <el-button @click="openInBrowser">浏览器下载</el-button>
         <el-button @click="visible = false">取消</el-button>
         <el-button type="primary" @click="start">开始更新</el-button>
       </template>
@@ -49,6 +50,15 @@ function show(i: UpdateInfo): void {
 function ignore(): void {
   if (info.value) void window.api.ignoreUpdate(info.value.version)
   visible.value = false
+}
+
+/** 自动更新抽风时的兜底：直接用系统浏览器去 Releases 页下载安装包 */
+function openInBrowser(): void {
+  const url = info.value
+    ? `https://github.com/conm599/GOOGLEd/releases/tag/v${info.value.version}`
+    : 'https://github.com/conm599/GOOGLEd/releases/latest'
+  void window.api.openExternal(url)
+  ElMessage.success('已在浏览器打开下载页')
 }
 
 async function start(): Promise<void> {

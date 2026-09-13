@@ -211,6 +211,26 @@ class TransferEngine {
     return 1
   }
 
+  /** 递归下载：文件夹 → 以其名字为根目录逐层展开入队（保持子目录结构），单个文件 → 普通下载。返回入队文件数 */
+  async addDownloadRecursive(file: DriveFile, destDir?: string): Promise<number> {
+    const dir = destDir || loadSettings().downloadDir
+    if (!dir) throw new Error('请先在设置中选择下载目录')
+    if (file.mimeType !== FOLDER_MIME) return this.addDownload(file, dir)
+    return this.addDownloadFolderContents(file.id, path.join(dir, file.name))
+  }
+
+  /** 把云端文件夹的全部内容（递归）加入下载队列，保持子目录结构；返回入队文件数 */
+  async addDownloadFolderContents(folderId: string, destDir: string): Promise<number> {
+    await fsp.mkdir(destDir, { recursive: true })
+    let count = 0
+    const r = await driveClient.list({ parentId: folderId, pageSize: 1000, trashed: false })
+    for (const f of r.files) {
+      if (f.mimeType === FOLDER_MIME) count += await this.addDownloadFolderContents(f.id, path.join(destDir, f.name))
+      else count += await this.addDownload(f, destDir)
+    }
+    return count
+  }
+
   pause(id: string): void {
     const t = this.tasks.get(id)
     if (!t || t.status !== 'running') return
@@ -426,8 +446,7 @@ class TransferEngine {
   }
 }
 
-function guessMime(p: string): string {
-  const ext = path.extname(p).toLowerCase()
+function guessMime(p: string): string {  const ext = path.extname(p).toLowerCase()
   const map: Record<string, string> = {
     '.txt': 'text/plain',
     '.md': 'text/markdown',
