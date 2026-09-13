@@ -9,3 +9,6 @@ release/
 .zcode/
 .backup-test/
 .test-upload/
+
+# linux cli 构建产物
+packages/linux/dist/

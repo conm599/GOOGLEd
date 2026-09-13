@@ -1,8 +1,14 @@
 # GOOGLEd 云盘
 
-[![Build Windows](https://github.com/conm599/GOOGLEd/actions/workflows/build.yml/badge.svg)](https://github.com/conm599/GOOGLEd/actions/workflows/build.yml)
+[![Build](https://github.com/conm599/GOOGLEd/actions/workflows/build.yml/badge.svg)](https://github.com/conm599/GOOGLEd/actions/workflows/build.yml)
 
-面向中国用户的 Google 云盘桌面客户端。核心卖点：**上传/下载断点续传**、**Cloudflare Workers 反代加速**（低成本稳定直连）、标准 OAuth2 自动续期登录。
+面向中国用户的 Google 云盘客户端（**Windows GUI + Linux CLI**）。核心卖点：**上传/下载断点续传**、**Cloudflare Workers 反代加速**（低成本稳定直连）、标准 OAuth2 自动续期登录。
+
+> 本分支（linux-port）为双平台结构：
+> - `packages/core` —— 纯 Node 共享引擎（传输/断点续传/备份/Drive API/OAuth/网络出口），两平台共用同一份代码
+> - 根目录 `src/main` —— Windows Electron GUI（行为与此前版本一致，平台能力经 `platform-electron.ts` 注入）
+> - `packages/linux` —— Linux CLI（Node 适配器 + 全功能命令行，见 [docs/linux-cli.md](docs/linux-cli.md)）
+> - CI 每次构建同时发布 Windows 安装包与 Linux CLI 压缩包到同一 Release，版本号一致；**Windows 应用内更新链路不变**
 
 ## 功能
 
@@ -47,23 +53,16 @@ npm run dist:win   # 输出到 release/<version>/GOOGLEd Setup x.x.x.exe
 ## 目录结构
 
 ```
-src/
-├── shared/types.ts        # 主/渲染进程共享类型
-├── main/                  # 主进程
-│   ├── net/NetClient.ts   # 统一网络出口（直连/代理/Workers 反改写）
-│   ├── net/workerTemplate.ts # CF Worker 部署代码模板
-│   ├── auth/AuthService.ts   # OAuth2 loopback + 自动续期
-│   ├── drive/DriveClient.ts  # Drive API v3 封装
-│   ├── transfer/             # 断点续传引擎
-│   │   ├── TransferEngine.ts # 队列/并发/调度
-│   │   ├── UploadTask.ts     # Resumable Upload 协议
-│   │   ├── DownloadTask.ts   # Range 断点下载
-│   │   └── taskStore.ts      # 断点持久化
-│   ├── settings.ts        # 设置 + token 加密存储
-│   └── ipc.ts             # IPC 通道注册
-├── preload/index.ts       # contextBridge
-└── renderer/src/          # Vue 3 + Element Plus 界面
-    ├── views/FilesView / TransfersView / SharesView / SettingsView
-    └── components/WelcomeGate（首启向导）/ ShareDialog
+packages/core/src/       # 共享引擎（纯 Node，零 electron 依赖）
+├── platform.ts          # 平台抽象：宿主注入路径/加密/网络/UI 能力
+├── net/NetClient.ts     # 统一网络出口（直连/代理/Workers 反改写）
+├── auth/AuthService.ts  # OAuth2 loopback + 自动续期
+├── drive/DriveClient.ts # Drive API v3 封装
+├── transfer/            # 断点续传引擎（队列/Resumable Upload/Range 下载/断点持久化）
+├── backup/              # 文件夹增量备份
+└── storage/DiskCache.ts # 缓存统计与清理
+src/main/                # Windows GUI 主进程（Electron 壳 + platform-electron 适配器）
+packages/linux/src/      # Linux CLI（platform-node 适配器 + 命令实现）
+src/preload、src/renderer # preload 与 Vue 3 + Element Plus 界面
 ```
 

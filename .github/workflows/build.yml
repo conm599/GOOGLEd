@@ -1,4 +1,4 @@
-name: Build Windows
+name: Build
 
 on:
   workflow_dispatch:
@@ -8,32 +8,44 @@ on:
   pull_request:
 
 jobs:
-  build:
+  # 版本号统一在这里决定（打 tag 用 tag 版本；日常 push 自动 +1），win/linux 两个产物共用同一版本
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      app_version: ${{ steps.ver.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+            npm version "$V" --no-git-tag-version --allow-same-version
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            OLD_V=$(node -p "require('./package.json').version")
+            V=$(npm version patch --no-git-tag-version | sed 's/^v//')
+            git add package.json package-lock.json
+            git commit -m "chore: bump version v$OLD_V -> v$V [skip ci]" || true
+            git push || echo "::warning::version bump push failed, building with local version"
+          fi
+          echo "app_version=$V" >> "$GITHUB_OUTPUT"
+
+  # Windows GUI（与原 Build Windows 完全一致：NSIS 安装包，应用内更新走 GitHub Releases exe 资产）
+  build-win:
+    needs: version
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync version from tag (release builds)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Sync version
         shell: bash
-        run: |
-          npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
-          echo "APP_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-
-      - name: Bump patch version (every dev build +1)
-        if: "!startsWith(github.ref, 'refs/tags/')"
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          OLD_V=$(node -p "require('./package.json').version")
-          NEW_V=$(npm version patch --no-git-tag-version | sed 's/^v//')
-          echo "APP_VERSION=$NEW_V" >> "$GITHUB_ENV"
-          git add package.json package-lock.json
-          git commit -m "chore: bump version v$OLD_V -> v$NEW_V [skip ci]"
-          git push || echo "::warning::version bump push failed, building with local version"
+        run: npm version "${{ needs.version.outputs.app_version }}" --no-git-tag-version --allow-same-version
 
       - uses: actions/setup-node@v4
         with:
@@ -62,10 +74,68 @@ jobs:
           path: release/*/*.exe
           if-no-files-found: error
 
-      - name: Publish release (every build)
-        if: github.event_name != 'pull_request'
+  # Linux CLI（复用 packages/core 引擎的单文件 Node 程序，零运行时依赖）
+  build-linux:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync version
+        run: npm version "${{ needs.version.outputs.app_version }}" --no-git-tag-version --allow-same-version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI (esbuild 单文件)
+        run: node packages/linux/build.mjs
+
+      - name: Package tarball
+        run: |
+          mkdir -p dist-pkg/googled
+          cp packages/linux/dist/googled.mjs dist-pkg/googled/googled
+          cp docs/linux-cli.md dist-pkg/googled/README-LINUX.md
+          tar -czf "googled-linux-x64.tar.gz" -C dist-pkg googled
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GOOGLEd-Linux-x64
+          path: googled-linux-x64.tar.gz
+          if-no-files-found: error
+
+  # 统一发布：win exe + linux tar.gz 进同一个 Release（win 应用内更新按 exe 资产找，linux 按 googled-linux 前缀找）
+  release:
+    needs: [version, build-win, build-linux]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: GOOGLEd-Windows-x64
+          path: rel/win
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: GOOGLEd-Linux-x64
+          path: rel/linux
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.APP_VERSION }}
-          files: release/*/*.exe
+          tag_name: v${{ needs.version.outputs.app_version }}
+          files: |
+            rel/win/*.exe
+            rel/linux/*.tar.gz
           generate_release_notes: true
