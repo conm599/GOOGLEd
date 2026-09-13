@@ -27,7 +27,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import type { UpdateInfo } from '../../../shared/types'
+import type { UpdateInfo } from '@core/types'
 import { fmtSize } from '../utils/format'
 import { plain } from '../utils/action'
 

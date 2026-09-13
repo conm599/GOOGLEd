@@ -51,7 +51,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import Player from 'xgplayer'
 import 'xgplayer/dist/index.min.css'
 import { renderAsync } from 'docx-preview'
-import type { DriveFile } from '../../../shared/types'
+import type { DriveFile } from '@core/types'
 
 const props = defineProps<{ file: DriveFile | null }>()
 const visible = defineModel<boolean>({ default: false })

@@ -1,4 +1,3 @@
-import { BrowserWindow, dialog } from 'electron'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -7,8 +6,9 @@ import { UploadTask } from './UploadTask'
 import { DownloadTask } from './DownloadTask'
 import { loadSettings } from '../settings'
 import { driveClient, FOLDER_MIME } from '../drive/DriveClient'
+import { getPlatform } from '../platform'
 import { logger } from '../logger'
-import type { DriveFile, TransferTask } from '../../shared/types'
+import type { DriveFile, TransferTask } from '../types'
 
 /** 速度滑动窗口：窗口太短时，分块未完成期间算出的增量恒为 0 */
 const SPEED_WINDOW_MS = 10000
@@ -75,29 +75,21 @@ class TransferEngine {
     return out
   }
 
-  /** 选择文件加入上传队列 */
+  /** 选择文件加入上传队列（win 弹系统文件对话框；CLI 恒返回空 = 取消） */
   async addUploadFiles(parentId: string): Promise<number> {
-    const win = BrowserWindow.getAllWindows()[0]
-    const result = await dialog.showOpenDialog(win, {
-      title: '选择要上传的文件',
-      properties: ['openFile', 'multiSelections']
-    })
-    if (result.canceled || !result.filePaths.length) return 0
+    const filePaths = await getPlatform().pickFiles('选择要上传的文件')
+    if (!filePaths.length) return 0
     let count = 0
-    for (const p of result.filePaths) count += await this.addUploadPath(p, parentId)
+    for (const p of filePaths) count += await this.addUploadPath(p, parentId)
     this.emit(true)
     return count
   }
 
   /** 选择文件夹加入上传队列（递归展开，云端目录结构自动创建） */
   async addUploadFolder(parentId: string): Promise<number> {
-    const win = BrowserWindow.getAllWindows()[0]
-    const result = await dialog.showOpenDialog(win, {
-      title: '选择要上传的文件夹',
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (result.canceled || !result.filePaths.length) return 0
-    const count = await this.addUploadPath(result.filePaths[0], parentId)
+    const folder = await getPlatform().pickFolder('选择要上传的文件夹')
+    if (!folder) return 0
+    const count = await this.addUploadPath(folder, parentId)
     this.emit(true)
     return count
   }
@@ -423,9 +415,7 @@ class TransferEngine {
     }
     this.lastEmitAt = Date.now()
     const snapshot = this.list().map((t) => ({ ...t, sessionUri: undefined }))
-    for (const w of BrowserWindow.getAllWindows()) {
-      w.webContents.send('transfer:changed', snapshot)
-    }
+    getPlatform().broadcast('transfer:changed', snapshot)
   }
 }
 

@@ -1,11 +1,11 @@
-import { app } from 'electron'
 import * as fs from 'node:fs'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import type { TransferTask } from '../../shared/types'
+import type { TransferTask } from '../types'
+import { getPlatform } from '../platform'
 import { logger } from '../logger'
 
-const DIR = () => path.join(app.getPath('userData'), 'transfers')
+const DIR = () => path.join(getPlatform().userDataDir(), 'transfers')
 const FILE = () => path.join(DIR(), 'tasks.json')
 
 /**

@@ -61,7 +61,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { TransferTask, TaskStatus } from '../../../shared/types'
+import type { TransferTask, TaskStatus } from '@core/types'
 import { useAppStore } from '../stores/app'
 import { fmtSize, fmtSpeed } from '../utils/format'
 import { withToast } from '../utils/action'

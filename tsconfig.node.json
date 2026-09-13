@@ -14,7 +14,11 @@
     "outDir": "out/tsc-node",
     "noEmit": false,
     "emitDeclarationOnly": true,
-    "declaration": true
+    "declaration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["packages/core/src/*"]
+    }
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "electron.vite.config.ts"]
+  "include": ["src/main/**/*", "src/preload/**/*", "packages/core/src/**/*", "electron.vite.config.ts"]
 }

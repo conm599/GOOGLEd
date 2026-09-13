@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { app } from 'electron'
-import type { BackupTask } from '../../shared/types'
+import { getPlatform } from '../platform'
+import type { BackupTask } from '../types'
 
 /** 备份任务持久化：userData/backups.json（含上次同步快照） */
 interface StoredBackup extends BackupTask {
@@ -9,7 +9,7 @@ interface StoredBackup extends BackupTask {
   files: Record<string, { size: number; mtimeMs: number }>
 }
 
-const FILE = () => path.join(app.getPath('userData'), 'backups.json')
+const FILE = () => path.join(getPlatform().userDataDir(), 'backups.json')
 
 export class BackupStore {
   load(): StoredBackup[] {

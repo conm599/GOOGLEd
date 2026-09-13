@@ -156,7 +156,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, FolderAdd, FolderOpened, Delete, Back, Grid, Menu, Search } from '@element-plus/icons-vue'
-import type { DriveFile } from '../../../shared/types'
+import type { DriveFile } from '@core/types'
 import { useAppStore } from '../stores/app'
 import { fmtSize, fmtTime, fileIcon, isFolder } from '../utils/format'
 import { withToast, plain } from '../utils/action'

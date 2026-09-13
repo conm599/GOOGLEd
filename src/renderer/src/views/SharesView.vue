@@ -39,7 +39,7 @@
 import { onMounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import type { DriveFile } from '../../../shared/types'
+import type { DriveFile } from '@core/types'
 import { fmtSize, fmtTime, fileIcon } from '../utils/format'
 import ShareDialog from '../components/ShareDialog.vue'
 

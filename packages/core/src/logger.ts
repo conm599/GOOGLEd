@@ -1,8 +1,8 @@
-import { app } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { getPlatform } from './platform'
 
-const LOG_DIR = () => path.join(app.getPath('userData'), 'logs')
+const LOG_DIR = () => path.join(getPlatform().userDataDir(), 'logs')
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)

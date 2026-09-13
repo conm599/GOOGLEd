@@ -1,17 +1,18 @@
-import { BrowserWindow, session, shell } from 'electron'
 import * as http from 'node:http'
 import * as crypto from 'node:crypto'
 import { netClient } from '../net/NetClient'
 import { loadSettings, loadTokens, saveTokens, clearTokens, type StoredTokens } from '../settings'
+import { getPlatform } from '../platform'
 import { logger } from '../logger'
-import type { AuthStatus, AuthUserInfo } from '../../shared/types'
+import type { AuthStatus, AuthUserInfo } from '../types'
 
 const SCOPE = 'https://www.googleapis.com/auth/drive openid email profile'
 
 /**
  * 标准 OAuth2（桌面应用 loopback 流程）：
- * 浏览器授权 → 本地 127.0.0.1 回调收 code → 换 token → safeStorage 加密存储 → refresh token 长期自动续期。
+ * 浏览器/内嵌窗口授权 → 本地 127.0.0.1 回调收 code → 换 token → 平台加密存储 → refresh token 长期自动续期。
  * token 换取与刷新都走 NetClient，因此在代理 / Workers 模式下同样可用。
+ * 登录窗口/系统浏览器的打开方式由平台注入（win: 内嵌 BrowserWindow；linux: 系统浏览器 + 链接打印）。
  */
 class AuthService {
   private refreshing: Promise<void> | null = null
@@ -71,14 +72,14 @@ class AuthService {
    * 退出登录：
    * 1. 调 Google revoke 撤销服务端授权（尽力而为，失败不阻塞退出）
    * 2. 清除本机加密凭据
-   * 3. 清空内嵌登录窗口的会话，下次登录会要求重新选账号，不会被旧登录态带偏
+   * 3. 清空登录窗口的会话（win），下次登录会要求重新选账号，不会被旧登录态带偏
    */
   async logout(): Promise<void> {
     const t = loadTokens()
     if (t?.refreshToken || t?.accessToken) await this.revokeToken(t.refreshToken || t.accessToken)
     clearTokens()
     this.invalidGrant = false
-    this.authWindow?.close()
+    getPlatform().closeAuthWindow()
     await this.clearAuthSession()
     logger.info('已退出登录')
     this.broadcastAuth()
@@ -99,18 +100,15 @@ class AuthService {
 
   private async clearAuthSession(): Promise<void> {
     try {
-      await session.fromPartition('persist:googled-auth').clearStorageData()
+      await getPlatform().clearAuthSession()
     } catch (e) {
-      logger.warn('清理登录窗口会话失败', e)
+      logger.warn('清理登录会话失败', e)
     }
   }
 
-  /** 登录状态变化推送给所有窗口（登录/退出/授权失效时） */
+  /** 登录状态变化推送给 UI（登录/退出/授权失效时） */
   private broadcastAuth(): void {
-    const status = this.status()
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (!w.isDestroyed()) w.webContents.send('auth:changed', status)
-    }
+    getPlatform().broadcast('auth:changed', this.status())
   }
 
   /** 获取有效 access token，过期前 60s 自动刷新；并发刷新只发一次请求 */
@@ -202,46 +200,24 @@ class AuthService {
   }
 
   private loopbackServer: http.Server | null = null
-  private authWindow: BrowserWindow | null = null
 
   /**
-   * 应用内独立登录窗口：
-   * - 使用独立 session 分区（persist:googled-auth），与用户浏览器 / 其他配置文件完全隔离，
-   *   多账号用户不会被默认浏览器的登录态带偏，窗口里自己选账号
-   * - Google 回调到本地 127.0.0.1 时，成功页直接显示在本窗口里
+   * 打开授权页（平台注入）：
+   * - win：独立 session 分区的内嵌登录窗口，多账号用户不会被默认浏览器登录态带偏
+   * - linux：打印链接 + 尝试系统浏览器（无桌面/SSH 环境给出端口转发提示）
+   * Google 回调到本地 127.0.0.1 时，成功页由 loopback 服务直接返回
    */
   private async openAuthWindow(url: string): Promise<void> {
-    const ses = session.fromPartition('persist:googled-auth')
-    const win = new BrowserWindow({
-      width: 500,
-      height: 760,
-      title: '登录 Google 账号',
-      autoHideMenuBar: true,
-      webPreferences: {
-        session: ses,
-        contextIsolation: true,
-        nodeIntegration: false,
-        spellcheck: false
-      }
-    })
-    this.authWindow = win
-    win.on('closed', () => {
-      this.authWindow = null
-    })
     try {
-      await win.loadURL(url)
+      await getPlatform().openAuthWindow(url)
     } catch (e) {
-      logger.warn('内嵌登录窗口加载失败，改用系统浏览器', e)
-      void shell.openExternal(url)
+      logger.warn('打开授权页失败', e)
+      getPlatform().openExternal(url)
     }
   }
 
   private closeAuthWindow(delayMs = 1200): void {
-    const win = this.authWindow
-    if (!win) return
-    setTimeout(() => {
-      if (!win.isDestroyed()) win.close()
-    }, delayMs)
+    setTimeout(() => getPlatform().closeAuthWindow(), delayMs)
   }
 
   private waitLoopbackCode(port: number, state: string): Promise<string> {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DriveFile, Settings, TransferTask, AuthStatus, WorkerTestResult, DrivePermission, UpdateInfo } from '../shared/types'
+import type { DriveFile, Settings, TransferTask, AuthStatus, WorkerTestResult, DrivePermission, UpdateInfo } from '@core/types'
 
 /**
  * IPC 结构化克隆不接受任何 Proxy——而 Vue reactive 是深层的，
@@ -67,7 +67,7 @@ const api = {
   readText: (fileId: string): Promise<string> => ipcRenderer.invoke('drive:readText', fileId),
 
   // 备份
-  backupList: (): Promise<import('../shared/types').BackupTaskStatus[]> => ipcRenderer.invoke('backup:list'),
+  backupList: (): Promise<import('@core/types').BackupTaskStatus[]> => ipcRenderer.invoke('backup:list'),
   backupAdd: (localPath: string, remoteName?: string, parentFolderId?: string): Promise<void> =>
     ipcRenderer.invoke('backup:add', localPath, remoteName, parentFolderId),
   backupRemove: (id: string): Promise<void> => ipcRenderer.invoke('backup:remove', id),
@@ -76,19 +76,19 @@ const api = {
     ipcRenderer.invoke('backup:syncNow', id, manual),
   backupSetQuietMinutes: (id: string, minutes: number): Promise<void> =>
     ipcRenderer.invoke('backup:setQuietMinutes', id, minutes),
-  backupSetSchedule: (id: string, schedule?: import('../shared/types').BackupSchedule): Promise<void> =>
+  backupSetSchedule: (id: string, schedule?: import('@core/types').BackupSchedule): Promise<void> =>
     ipcRenderer.invoke('backup:setSchedule', id, schedule),
   pickBackupFolder: (): Promise<{ localPath: string; suggestedName: string } | null> =>
     ipcRenderer.invoke('dialog:pickBackupFolder'),
-  onBackupChanged: (cb: (tasks: import('../shared/types').BackupTaskStatus[]) => void): (() => void) => {
-    const listener = (_e: unknown, t: import('../shared/types').BackupTaskStatus[]): void => cb(t)
+  onBackupChanged: (cb: (tasks: import('@core/types').BackupTaskStatus[]) => void): (() => void) => {
+    const listener = (_e: unknown, t: import('@core/types').BackupTaskStatus[]): void => cb(t)
     ipcRenderer.on('backup:changed', listener)
     return () => ipcRenderer.removeListener('backup:changed', listener)
   },
   onBackupProgress: (
-    cb: (p: import('../shared/types').BackupProgress) => void
+    cb: (p: import('@core/types').BackupProgress) => void
   ): (() => void) => {
-    const listener = (_e: unknown, p: import('../shared/types').BackupProgress): void => cb(p)
+    const listener = (_e: unknown, p: import('@core/types').BackupProgress): void => cb(p)
     ipcRenderer.on('backup:progress', listener)
     return () => ipcRenderer.removeListener('backup:progress', listener)
   },

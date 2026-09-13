@@ -140,7 +140,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { FolderAdd, Timer } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import type { BackupTaskStatus } from '../../../shared/types'
+import type { BackupTaskStatus } from '@core/types'
 import { fmtTime } from '../utils/format'
 import { withToast } from '../utils/action'
 import FolderPickerDialog from '../components/FolderPickerDialog.vue'

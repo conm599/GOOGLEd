@@ -1,5 +1,5 @@
 import { protocol } from 'electron'
-import { logger } from '../logger'
+import { logger } from '@core/logger'
 import { streamCache } from './StreamCache'
 
 const FILE_ID_RE = /^[A-Za-z0-9_-]{10,64}$/

@@ -1,6 +1,6 @@
 import { netClient } from '../net/NetClient'
 import { authService } from '../auth/AuthService'
-import type { DriveFile, StorageQuota, DrivePermission } from '../../shared/types'
+import type { DriveFile, StorageQuota, DrivePermission } from '../types'
 
 const API = 'https://www.googleapis.com/drive/v3'
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
@@ -100,6 +100,20 @@ export class DriveClient {
 
   async about(): Promise<{ user?: { displayName?: string; emailAddress?: string }; storageQuota?: StorageQuota }> {
     return this.call(`${API}/about?fields=user,storageQuota`)
+  }
+
+  /** 读取小文件文本内容（预览/cat 共用）：超过 maxBytes 抛错，绝不整读大文件 */
+  async readText(fileId: string, maxBytes = 2 * 1024 * 1024): Promise<string> {
+    if (!/^[A-Za-z0-9_-]{10,64}$/.test(fileId)) throw new Error('非法文件 ID')
+    const token = await authService.getAccessToken()
+    const res = await netClient.request(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
+      { headers: { authorization: `Bearer ${token}` }, timeoutMs: 30000 }
+    )
+    if (!res.ok) throw new Error(`读取失败（HTTP ${res.status}）`)
+    const buf = await res.arrayBuffer()
+    if (buf.byteLength > maxBytes) throw new Error(`文件超过 ${Math.round(maxBytes / 1024 / 1024)}MB，请下载后查看`)
+    return new TextDecoder('utf-8').decode(buf)
   }
 
   async createFolder(name: string, parentId: string): Promise<DriveFile> {

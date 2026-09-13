@@ -1,6 +1,6 @@
-import { net, session } from 'electron'
-import type { Settings } from '../../shared/types'
+import type { Settings } from '../types'
 import { loadSettings } from '../settings'
+import { getPlatform, type ProxyConfig, type FetchInit } from '../platform'
 import { logger } from '../logger'
 
 /** Worker 域名故障冷却时长：冷却期内请求自动切其他域名，到期自动切回（探测是否恢复） */
@@ -14,6 +14,7 @@ const BASE_COOLDOWN_MS = 90000
  * - workers  Cloudflare Workers 反代：https://worker.domain/https://www.googleapis.com/...
  * 所有对 Google 的请求（API / 上传会话 / OAuth / 缩略图）都必须经过这里，
  * 保证断点续传的每个分块请求都走同一条可用通道。
+ * 实际网络栈由平台注入（win: Chromium net；linux: Node fetch + undici/socks 调度器）。
  */
 export class NetClient {
   private appliedProxyKey = ''
@@ -21,9 +22,8 @@ export class NetClient {
   private baseCooldown = new Map<string, number>()
 
   async applySettings(s: Settings): Promise<void> {
-    const ses = session.fromPartition('persist:googled')
     let key = ''
-    const conf: Electron.ProxyConfig = { mode: 'direct' }
+    const conf: ProxyConfig = { mode: 'direct' }
     if (s.netMode === 'system') {
       conf.mode = 'system'
       key = 'system'
@@ -36,7 +36,7 @@ export class NetClient {
       key = conf.proxyRules
     }
     if (key !== this.appliedProxyKey) {
-      await ses.setProxy(conf)
+      await getPlatform().applyProxy(conf)
       this.appliedProxyKey = key
       logger.info('代理已应用', { netMode: s.netMode, proxyRules: conf.proxyRules || 'direct' })
     }
@@ -129,13 +129,11 @@ export class NetClient {
     }
     const base = this.usedBase(finalUrl)
     try {
-      const res = await net.fetch(finalUrl, {
+      const res = await getPlatform().fetch(finalUrl, {
         ...rest,
         cache: 'no-store',
-        signal: controller.signal,
-        useSession: true,
-        session: 'persist:googled'
-      } as RequestInit)
+        signal: controller.signal
+      } as FetchInit)
       // 域名持续 5xx/429 也视为故障：冷却后让后续请求换域名
       if (base && (res.status >= 500 || res.status === 429)) this.coolBase(base)
       return res
@@ -162,9 +160,19 @@ export class NetClient {
 
 export const netClient = new NetClient()
 
-/** Electron/Chromium 网络层瞬时错误（断线、代理闪断、网络切换等），可安全重试 */
+/**
+ * 网络层瞬时错误（断线、代理闪断、网络切换等），可安全重试。
+ * win/Chromium 报 ERR_* 串；linux/Node 抂 ECONNRESET、UND_ERR_* 等（多在 cause 里）。
+ */
 export function isTransientNetError(e: Error): boolean {
-  return /ERR_CONNECTION_RESET|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|ERR_NAME_NOT_RESOLVED|ERR_SOCKET_NOT_CONNECTED|ERR_CONNECTION_CLOSED/.test(
-    e.message
+  const texts: string[] = [e.message]
+  let c = (e as Error & { cause?: unknown }).cause
+  for (let i = 0; i < 3 && c; i++) {
+    texts.push(c instanceof Error ? c.message : String(c))
+    c = (c as Error | undefined)?.cause
+  }
+  const all = texts.join('|')
+  return /ERR_CONNECTION_RESET|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|ERR_NAME_NOT_RESOLVED|ERR_SOCKET_NOT_CONNECTED|ERR_CONNECTION_CLOSED|ECONNRESET|ECONNABORTED|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT|OtherSideClosed/.test(
+    all
   )
 }

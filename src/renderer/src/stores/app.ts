@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Settings, TransferTask, AuthStatus } from '../../../shared/types'
+import type { Settings, TransferTask, AuthStatus } from '@core/types'
 
 export const useAppStore = defineStore('app', () => {
   const settings = ref<Settings | null>(null)

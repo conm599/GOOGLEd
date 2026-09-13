@@ -8,7 +8,7 @@ import { netClient } from '../net/NetClient'
 import { authService } from '../auth/AuthService'
 import { driveClient } from '../drive/DriveClient'
 import { logger } from '../logger'
-import type { TransferTask } from '../../shared/types'
+import type { TransferTask } from '../types'
 
 /**
  * HTTP Range 断点下载：

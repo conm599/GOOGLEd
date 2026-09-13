@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { app } from 'electron'
+import { getPlatform } from '../platform'
 import { loadSettings } from '../settings'
 import { transferEngine } from '../transfer/TransferEngine'
 import { updateCacheDir, updateCacheFiles } from '../update/UpdateService'
@@ -19,7 +19,7 @@ export interface DiskCacheStats {
 
 export function downloadDir(): string {
   const s = loadSettings()
-  return s.downloadDir || path.join(app.getPath('downloads'), 'GOOGLEd')
+  return s.downloadDir || path.join(getPlatform().downloadsDir(), 'GOOGLEd')
 }
 
 async function walk(dir: string, out: string[]): Promise<void> {

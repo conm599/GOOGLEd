@@ -1,19 +1,16 @@
-import { app, BrowserWindow, net, session } from 'electron'
-import { spawn } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { netClient } from '../net/NetClient'
 import { loadSettings, saveSettings } from '../settings'
+import { getPlatform, type FetchInit } from '../platform'
 import { logger } from '../logger'
-import type { UpdateInfo } from '../../shared/types'
+import type { UpdateInfo } from '../types'
 
 const RELEASE_API = 'https://api.github.com/repos/conm599/GOOGLEd/releases/latest'
-/** 常见本机代理端口（v2rayN 10808/10809、clash 7890/7897、通用 socks 1080） */
-const PROBE_PORTS = [10808, 7890, 10809, 7897, 1080]
 
-/** 下载的安装包存放处：userData/cache/update，纳入磁盘缓存清理（手动清理 + 阈值自动清理） */
+/** 下载的更新包存放处：userData/cache/update，纳入磁盘缓存清理（手动清理 + 阈值自动清理） */
 export function updateCacheDir(): string {
-  return path.join(app.getPath('userData'), 'cache', 'update')
+  return path.join(getPlatform().userDataDir(), 'cache', 'update')
 }
 
 export function updateCacheFiles(): Promise<string[]> {
@@ -32,9 +29,9 @@ function cmpVersion(a: string, b: string): number {
 }
 
 /**
- * 应用内更新：
- * - 查询 GitHub Releases 最新版（公共仓库，无需 token）
- * - 下载安装包到缓存目录（纳入缓存清理），完成后自动拉起安装器并退出应用
+ * 应用更新（win 与 linux CLI 共用）：
+ * - 查询 GitHub Releases 最新版（公共仓库，无需 token），按平台挑选更新包资产
+ * - 下载到缓存目录（纳入缓存清理），完成后交给平台落定（win 拉起安装器；linux 替换自身二进制）
  * - 大陆访问 GitHub 慢：下载按「设置里的代理 > 自动探测到的本机代理 > 直连」多通道尝试，
  *   每个通道失败自动换下一个并断点续传；45 秒无数据视为通道停滞
  * - 打包版启动 15 秒后静默检查（每 24h 一次），被忽略的版本不再提示；开发版只手动检查
@@ -59,17 +56,15 @@ class UpdateService {
       }
       const version = (data.tag_name || '').replace(/^v/, '')
       if (!version) return { status: 'error', error: '未获取到最新版本号' }
-      if (cmpVersion(version, app.getVersion()) <= 0) return { status: 'latest' }
-      const assets = data.assets || []
-      const asset =
-        assets.find((a) => a.name.endsWith('.exe') && a.name.includes('Setup')) || assets.find((a) => a.name.endsWith('.exe'))
-      if (!asset) return { status: 'error', error: '最新版本没有可用的安装包' }
+      if (cmpVersion(version, getPlatform().version()) <= 0) return { status: 'latest' }
+      const asset = getPlatform().pickUpdateAsset(data.assets || [])
+      if (!asset) return { status: 'error', error: '最新版本没有可用的更新包' }
       return {
         status: 'available',
         info: {
           version,
           notes: (data.body || '').slice(0, 4000),
-          assetUrl: asset.browser_download_url,
+          assetUrl: asset.url,
           assetName: asset.name
         }
       }
@@ -85,8 +80,8 @@ class UpdateService {
     logger.info('用户忽略了更新', version)
   }
 
-  /** 更新下载应尝试的通道，按优先级：手动配置的代理 > 自动探测到的本机代理 > 直连（主会话）。
-   * 代理/系统代理模式下主会话本身已带代理，直接走主通道 */
+  /** 更新下载应尝试的通道，按优先级：手动配置的代理 > 自动探测到的本机代理 > 直连（主通道）。
+   * 代理/系统代理模式下主通道本身已带代理，直接走主通道 */
   private async downloadCandidates(): Promise<(string | null)[]> {
     const s = loadSettings()
     const manual = (s.updateProxy || '').trim()
@@ -99,41 +94,13 @@ class UpdateService {
   /** 探测本机常见代理端口（连接被拒=秒失败；有响应即视为可用），结果本次运行内缓存 */
   private async autoProbeProxies(): Promise<string[]> {
     if (this.probedProxy !== undefined) return this.probedProxy ? [this.probedProxy] : []
-    const probeSes = session.fromPartition('update-dl-probe')
-    const found: string[] = []
-    for (const port of PROBE_PORTS) {
-      for (const rules of [`http=127.0.0.1:${port};https=127.0.0.1:${port}`, `socks5://127.0.0.1:${port}`]) {
-        try {
-          await probeSes.setProxy({ proxyRules: rules })
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 2500)
-          try {
-            const res = await net.fetch('https://github.com', {
-              session: probeSes,
-              signal: controller.signal,
-              cache: 'no-store'
-            } as RequestInit)
-            void res.body?.cancel()
-            if (res.status > 0) {
-              found.push(rules)
-              break
-            }
-          } finally {
-            clearTimeout(timer)
-          }
-        } catch {
-          /* 该端口/协议不通，继续探测 */
-        }
-        if (found.length) break
-      }
-      if (found.length) break
-    }
+    const found = await getPlatform().probeLocalProxies()
     this.probedProxy = found[0] ?? null
     logger.info('更新下载通道探测', this.probedProxy ? `发现本机代理 ${this.probedProxy}` : '未发现本机代理，使用直连')
     return found
   }
 
-  /** 用指定代理（null=主会话，跟随代理/系统代理模式）发起请求；rangeStart 用于断点续传 */
+  /** 用指定代理（null=主通道，跟随代理/系统代理模式）发起请求；rangeStart 用于断点续传 */
   private async fetchVia(url: string, proxy: string | null, timeoutMs: number, rangeStart?: number): Promise<Response> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -143,20 +110,17 @@ class UpdateService {
       if (proxy === null) {
         return await netClient.request(url, { timeoutMs, headers, signal: controller.signal })
       }
-      const ses = session.fromPartition('update-dl')
-      await ses.setProxy({ proxyRules: proxy })
-      return await net.fetch(url, {
-        session: ses,
+      return await getPlatform().fetchViaProxy(proxy, url, {
         headers,
         cache: 'no-store',
         signal: controller.signal
-      } as RequestInit)
+      } as FetchInit)
     } finally {
       clearTimeout(timer)
     }
   }
 
-  /** 下载安装包（带进度推送），完成后自动运行安装器并退出应用。
+  /** 下载更新包（带进度推送），完成后交给平台落定。
    * 多通道自动切换 + Range 断点续传 + 45 秒无数据看门狗 */
   async downloadAndInstall(info: UpdateInfo): Promise<void> {
     if (this.downloading) throw new Error('已有更新正在下载')
@@ -173,13 +137,10 @@ class UpdateService {
       let lastError: Error | null = null
       for (const proxy of candidates) {
         try {
-          logger.info(`更新包下载通道：${proxy || '直连（主会话）'}`)
+          logger.info(`更新包下载通道：${proxy || '直连（主通道）'}`)
           await this.downloadOnce(info, dest, proxy)
-          logger.info(`更新包下载完成：${dest}，启动安装器`)
-          // 分离进程拉起 NSIS 安装器，退出应用让安装向导接管
-          const child = spawn(dest, [], { detached: true, stdio: 'ignore', cwd: dir })
-          child.unref()
-          setTimeout(() => app.quit(), 800)
+          logger.info(`更新包下载完成：${dest}`)
+          await getPlatform().applyUpdate(dest, info)
           return
         } catch (e) {
           lastError = e as Error
@@ -245,14 +206,12 @@ class UpdateService {
 
   /** 打包版：启动 15 秒后静默检查，之后每 24 小时一次；被忽略的版本不提示 */
   startAutoCheck(): void {
-    if (!app.isPackaged) return
+    if (!getPlatform().isPackaged()) return
     const run = async (): Promise<void> => {
       const { info } = await this.manualCheck()
       if (info && loadSettings().ignoredUpdateVersion !== info.version) {
         logger.info('发现新版本', info.version)
-        for (const w of BrowserWindow.getAllWindows()) {
-          if (!w.isDestroyed()) w.webContents.send('update:available', info)
-        }
+        getPlatform().broadcast('update:available', info)
       }
     }
     setTimeout(() => void run().catch(() => undefined), 15_000)
@@ -260,9 +219,7 @@ class UpdateService {
   }
 
   private emitProgress(received: number, total: number): void {
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (!w.isDestroyed()) w.webContents.send('update:progress', { received, total })
-    }
+    getPlatform().broadcast('update:progress', { received, total })
   }
 }
 

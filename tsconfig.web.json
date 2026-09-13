@@ -14,7 +14,11 @@
     "outDir": "out/tsc-web",
     "noEmit": false,
     "emitDeclarationOnly": true,
-    "declaration": true
+    "declaration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["packages/core/src/*"]
+    }
   },
-  "include": ["src/renderer/src/**/*", "src/preload/index.d.ts", "src/shared/**/*"]
+  "include": ["src/renderer/src/**/*", "src/preload/index.d.ts", "packages/core/src/types.ts"]
 }

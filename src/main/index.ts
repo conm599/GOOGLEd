@@ -1,14 +1,15 @@
 import { app, BrowserWindow, Menu, shell, Tray } from 'electron'
 import * as path from 'node:path'
-import { loadSettings, applyAutoStart, applyNativeTheme } from './settings'
-import { netClient } from './net/NetClient'
-import { transferEngine } from './transfer/TransferEngine'
-import { registerIpc } from './ipc'
+import { loadSettings } from '@core/settings'
+import { netClient } from '@core/net/NetClient'
+import { transferEngine } from '@core/transfer/TransferEngine'
+import { backupManager } from '@core/backup/BackupManager'
+import { updateService } from '@core/update/UpdateService'
+import * as diskCache from '@core/storage/DiskCache'
+import { logger } from '@core/logger'
 import { registerStreamScheme, registerStreamHandler } from './media/StreamProtocol'
-import { backupManager } from './backup/BackupManager'
-import { updateService } from './update/UpdateService'
-import * as diskCache from './storage/DiskCache'
-import { logger } from './logger'
+import { registerIpc } from './ipc'
+import { initPlatform, applyAutoStart, applyNativeTheme } from './platform-electron'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -60,6 +61,7 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
+  initPlatform() // 必须最先注入平台实现（core 的日志/路径/网络都依赖它）
   registerStreamScheme() // 必须在 ready 之前注册特权协议
   app.on('second-instance', (_e, argv) => {
     // 开机时重复的自启动实例带 --hidden：静默退出让位，不弹窗（否则静默启动失效）

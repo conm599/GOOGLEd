@@ -1,6 +1,6 @@
-import { authService } from '../auth/AuthService'
-import { netClient } from '../net/NetClient'
-import { logger } from '../logger'
+import { authService } from '@core/auth/AuthService'
+import { netClient } from '@core/net/NetClient'
+import { logger } from '@core/logger'
 
 const CHUNK_SIZE = 4 * 1024 * 1024
 const PREFETCH_AHEAD = 2

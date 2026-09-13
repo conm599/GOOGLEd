@@ -5,7 +5,7 @@ import { authService } from '../auth/AuthService'
 import { driveClient } from '../drive/DriveClient'
 import { loadSettings } from '../settings'
 import { logger } from '../logger'
-import type { TransferTask } from '../../shared/types'
+import type { TransferTask } from '../types'
 
 /**
  * Resumable Upload（Google 官方断点续传协议）：

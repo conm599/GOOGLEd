@@ -40,7 +40,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { DriveFile } from '../../../shared/types'
+import type { DriveFile } from '@core/types'
 
 const props = defineProps<{ title?: string }>()
 const visible = defineModel<boolean>({ default: false })

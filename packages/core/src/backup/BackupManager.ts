@@ -2,12 +2,12 @@ import * as fs from 'node:fs'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow } from 'electron'
 import { BackupStore, type StoredBackup } from './BackupStore'
 import { driveClient } from '../drive/DriveClient'
 import { transferEngine } from '../transfer/TransferEngine'
+import { getPlatform } from '../platform'
 import { logger } from '../logger'
-import type { BackupTaskStatus, BackupProgress, BackupSchedule } from '../../shared/types'
+import type { BackupTaskStatus, BackupProgress, BackupSchedule } from '../types'
 
 interface LocalEntry {
   abs: string
@@ -77,16 +77,12 @@ class BackupManager {
   }
 
   progress(id: string, phase: BackupProgress['phase'], message: string): void {
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (!w.isDestroyed()) w.webContents.send('backup:progress', { id, phase, message } satisfies BackupProgress)
-    }
+    getPlatform().broadcast('backup:progress', { id, phase, message } satisfies BackupProgress)
   }
 
   private emit(): void {
     const snapshot = this.list()
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (!w.isDestroyed()) w.webContents.send('backup:changed', snapshot)
-    }
+    getPlatform().broadcast('backup:changed', snapshot)
   }
 
   /** 云端目标文件夹名：普通文件夹取自身名字；盘符根（D:\）→「D盘」 */

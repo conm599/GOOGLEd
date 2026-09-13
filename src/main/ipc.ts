@@ -1,16 +1,17 @@
 import { ipcMain, BrowserWindow, app, dialog, shell, webUtils } from 'electron'
 import * as fs from 'node:fs'
-import { loadSettings, saveSettings, applyAutoStart, applyNativeTheme } from './settings'
-import { netClient } from './net/NetClient'
-import { authService } from './auth/AuthService'
-import { driveClient } from './drive/DriveClient'
-import { transferEngine } from './transfer/TransferEngine'
-import { backupManager } from './backup/BackupManager'
-import { updateService } from './update/UpdateService'
-import type { BackupSchedule, UpdateInfo } from '../shared/types'
-import { workerTemplate } from './net/workerTemplate'
-import * as diskCache from './storage/DiskCache'
-import { logger } from './logger'
+import { loadSettings, saveSettings } from '@core/settings'
+import { netClient } from '@core/net/NetClient'
+import { authService } from '@core/auth/AuthService'
+import { driveClient } from '@core/drive/DriveClient'
+import { transferEngine } from '@core/transfer/TransferEngine'
+import { backupManager } from '@core/backup/BackupManager'
+import { updateService } from '@core/update/UpdateService'
+import { workerTemplate } from '@core/net/workerTemplate'
+import * as diskCache from '@core/storage/DiskCache'
+import { logger } from '@core/logger'
+import type { BackupSchedule, UpdateInfo } from '@core/types'
+import { applyAutoStart, applyNativeTheme } from './platform-electron'
 
 /** 缩略图 LRU 缓存：fileId → dataURL */
 const thumbCache = new Map<string, string>()
@@ -137,19 +138,7 @@ export function registerIpc(): void {
   ipcMain.handle('drive:about', () => driveClient.about())
 
   // ---- 预览 ----
-  const FILE_ID_RE = /^[A-Za-z0-9_-]{10,64}$/
-  ipcMain.handle('drive:readText', async (_e, fileId: string) => {
-    if (!FILE_ID_RE.test(fileId)) throw new Error('非法文件 ID')
-    const token = await authService.getAccessToken()
-    const res = await netClient.request(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
-      { headers: { authorization: `Bearer ${token}` }, timeoutMs: 30000 }
-    )
-    if (!res.ok) throw new Error(`读取失败（HTTP ${res.status}）`)
-    const buf = await res.arrayBuffer()
-    if (buf.byteLength > 2 * 1024 * 1024) throw new Error('文件超过 2MB，请下载后查看')
-    return new TextDecoder('utf-8').decode(buf)
-  })
+  ipcMain.handle('drive:readText', (_e, fileId: string) => driveClient.readText(fileId))
 
   // ---- 分享 ----
   ipcMain.handle('share:listPermissions', (_e, id: string) => driveClient.listPermissions(id))

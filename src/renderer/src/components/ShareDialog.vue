@@ -37,7 +37,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import type { DriveFile, DrivePermission } from '../../../shared/types'
+import type { DriveFile, DrivePermission } from '@core/types'
 import { isFolder } from '../utils/format'
 import { withToast } from '../utils/action'
 
