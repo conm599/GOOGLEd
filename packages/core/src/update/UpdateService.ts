@@ -129,9 +129,9 @@ class UpdateService {
     const dest = path.join(dir, info.assetName)
     try {
       await fsp.mkdir(dir, { recursive: true })
-      // 只保留正在下载的这个，旧版本残留安装包清掉（也是缓存的一部分）
+      // 只保留正在下载的这个，旧版本残留安装包清掉（也是缓存的一部分；目录残留一并递归删）
       for (const f of await updateCacheFiles()) {
-        if (f !== info.assetName) await fsp.rm(path.join(dir, f), { force: true }).catch(() => undefined)
+        if (f !== info.assetName) await fsp.rm(path.join(dir, f), { force: true, recursive: true }).catch(() => undefined)
       }
       const candidates = await this.downloadCandidates()
       let lastError: Error | null = null

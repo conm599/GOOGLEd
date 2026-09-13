@@ -231,7 +231,10 @@ async function applyUpdate(filePath: string, _info: UpdateInfo): Promise<void> {
       extract.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`解压失败（tar 退出码 ${code}）`))))
       extract.on('error', reject)
     })
-    newBin = path.join(dir, 'googled')
+    const cand = path.join(dir, 'googled')
+    await fsp.access(cand)
+    // 压缩包内是 googled/ 目录（含 googled 主程序 + README）；若是目录则取其中的主程序
+    newBin = fs.statSync(cand).isDirectory() ? path.join(cand, 'googled') : cand
     await fsp.access(newBin)
   }
   const self = process.argv[1] ? fs.realpathSync(process.argv[1]) : null

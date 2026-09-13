@@ -136,6 +136,7 @@ jobs:
         with:
           tag_name: v${{ needs.version.outputs.app_version }}
           files: |
-            rel/win/*.exe
+            rel/win/**/*.exe
             rel/linux/*.tar.gz
+          fail_on_unmatched_files: true
           generate_release_notes: true
