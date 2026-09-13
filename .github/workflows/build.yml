@@ -32,7 +32,8 @@ jobs:
             V=$(npm version patch --no-git-tag-version | sed 's/^v//')
             git add package.json package-lock.json
             git commit -m "chore: bump version v$OLD_V -> v$V [skip ci]" || true
-            git push || echo "::warning::version bump push failed, building with local version"
+            # GitHub 偶发 remote rejected（fatal error in commit_refs），重试对抗瞬时故障
+            for i in 1 2 3; do git push && break || { echo "::warning::version bump push attempt $i failed"; sleep 10; }; done
           fi
           echo "app_version=$V" >> "$GITHUB_OUTPUT"
 
