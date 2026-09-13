@@ -226,9 +226,15 @@ async function applyUpdate(filePath: string, _info: UpdateInfo): Promise<void> {
   let newBin = filePath
   if (filePath.endsWith('.tar.gz') || filePath.endsWith('.tgz')) {
     const dir = path.dirname(filePath)
+    // 先清掉解压目标残留（上次失败可能留下同名目录/文件，污染本轮解压）
+    await fsp.rm(path.join(dir, 'googled'), { force: true, recursive: true }).catch(() => undefined)
     const extract = spawn('tar', ['-xzf', filePath, '-C', dir])
+    let tarErr = ''
+    extract.stderr?.on('data', (d) => (tarErr += String(d)))
     await new Promise<void>((resolve, reject) => {
-      extract.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`解压失败（tar 退出码 ${code}）`))))
+      extract.on('exit', (code) =>
+        code === 0 ? resolve() : reject(new Error(`解压失败（tar 退出码 ${code}）${tarErr.trim().slice(0, 300)}`))
+      )
       extract.on('error', reject)
     })
     const cand = path.join(dir, 'googled')
