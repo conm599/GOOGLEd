@@ -11,18 +11,13 @@ mkdirSync(resolve(here, 'dist'), { recursive: true })
 
 await esbuild.build({
   entryPoints: [resolve(here, 'src/index.ts')],
-  outfile: resolve(here, 'dist/googled.mjs'),
+  outfile: resolve(here, 'dist/googled'),
   bundle: true,
   platform: 'node',
   target: 'node20',
-  format: 'esm',
-  banner: {
-    // shebang + CJS 兼容 shim：undici 内部的动态 require（node:assert 等）在 ESM 里需要 createRequire
-    js:
-      '#!/usr/bin/env node\n' +
-      "import { createRequire as __crequire } from 'node:module';\n" +
-      'const require = __crequire(import.meta.url);\n'
-  },
+  // CJS：产物是无扩展名可执行文件，node 直跑时按 CJS 解析（ESM 需 .mjs 扩展名）
+  format: 'cjs',
+  banner: { js: '#!/usr/bin/env node' },
   define: { __VERSION__: JSON.stringify(version) },
   // undici / socks 是纯 JS，直接打进单文件，产物零运行时依赖
   packages: 'bundle',
@@ -31,6 +26,6 @@ await esbuild.build({
   legalComments: 'none'
 })
 
-const out = resolve(here, 'dist/googled.mjs')
+const out = resolve(here, 'dist/googled')
 chmodSync(out, 0o755)
 console.log(`[googled-linux] 构建完成 v${version} → ${out}`)

@@ -235,7 +235,7 @@ async function applyUpdate(filePath: string, _info: UpdateInfo): Promise<void> {
     await fsp.access(newBin)
   }
   const self = process.argv[1] ? fs.realpathSync(process.argv[1]) : null
-  if (!self || !self.endsWith('.mjs') && !fs.existsSync(self)) {
+  if (!self) {
     console.log(`更新包已就绪：${newBin}，请手动替换当前安装的 googled 文件`)
     return
   }

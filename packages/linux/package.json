@@ -3,9 +3,8 @@
   "version": "0.1.11",
   "description": "GOOGLEd Linux CLI：复用 packages/core 引擎的命令行客户端（断点续传/备份/Workers 反代）",
   "private": true,
-  "type": "module",
   "bin": {
-    "googled": "./dist/googled.mjs"
+    "googled": "./dist/googled"
   },
   "scripts": {
     "build": "node build.mjs",
