@@ -40,6 +40,7 @@
             </span>
           </el-tooltip>
           <el-button size="small" type="primary" :loading="t.syncing" @click="syncNow(t)">立即备份</el-button>
+          <el-button size="small" @click="startEdit(t)">更换文件夹</el-button>
           <el-popconfirm title="移除该备份任务？（云端已备份的文件不受影响）" @confirm="removeTask(t)">
             <template #reference>
               <el-button size="small" text type="danger">移除</el-button>
@@ -132,14 +133,47 @@
       </div>
     </el-dialog>
 
+    <!-- 更换文件夹对话框：支持改绑本地/云端目录，换云端可选搬迁旧内容 -->
+    <el-dialog v-model="editing" title="更换备份文件夹" width="560px">
+      <el-alert v-if="editRemoteChanged" type="warning" :closable="false" style="margin-bottom: 12px">
+        云端目标将从「{{ editTask?.remoteName }}」改绑到「{{ editDraft.remoteName || editDraft.remoteId }}」。
+        {{ editDraft.moveContents ? '保存后将把旧文件夹内容移动到新位置，旧空文件夹移入回收站。' : '不搬迁的话，新位置将重新完整备份一份。' }}
+      </el-alert>
+      <el-form label-width="90px">
+        <el-form-item label="本地文件夹">
+          <div style="display: flex; gap: 8px; width: 100%">
+            <el-input :model-value="editDraft.localPath" readonly />
+            <el-button @click="pickEditFolder">选择…</el-button>
+          </div>
+          <el-text v-if="editLocalChanged" size="small" type="warning" style="margin-top: 4px">
+            本地位置已更改：保存后重新扫描并增量备份新位置（云端已有同名文件会原地更新）
+          </el-text>
+        </el-form-item>
+        <el-form-item label="云端目标">
+          <div style="display: flex; gap: 8px; width: 100%">
+            <el-input :model-value="editDraft.remoteName || editDraft.remoteId || '未更改'" readonly />
+            <el-button @click="editPickerRef?.open()">浏览…</el-button>
+          </div>
+          <el-checkbox v-if="editRemoteChanged" v-model="editDraft.moveContents" style="margin-top: 8px">
+            搬迁：把旧云文件夹的内容移动到新位置（移动后旧空文件夹放入回收站）
+          </el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editing = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="confirmEdit">保存改绑</el-button>
+      </template>
+    </el-dialog>
+
     <FolderPickerDialog ref="folderPickerRef" title="选择备份位置" @picked="onParentPicked" />
+    <FolderPickerDialog ref="editPickerRef" title="选择新的云端目标" @picked="onEditParentPicked" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { FolderAdd, Timer } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { BackupTaskStatus } from '@core/types'
 import { fmtTime } from '../utils/format'
 import { withToast } from '../utils/action'
@@ -200,6 +234,73 @@ async function confirmAdd(): Promise<void> {
     ElMessage.error(`创建失败：${(e as Error).message}`)
   } finally {
     creating.value = false
+  }
+}
+
+// ---- 更换文件夹（改绑本地/云端目录） ----
+const editing = ref(false)
+const saving = ref(false)
+const editingId = ref('')
+const editTask = computed(() => tasks.value.find((t) => t.id === editingId.value) || null)
+const editPickerRef = ref<InstanceType<typeof FolderPickerDialog>>()
+const editDraft = reactive({ localPath: '', remoteId: '', remoteName: '', moveContents: false })
+const editLocalChanged = computed(() => !!editTask.value && editDraft.localPath !== editTask.value.localPath)
+const editRemoteChanged = computed(() => !!editTask.value && editDraft.remoteId !== editTask.value.remoteFolderId)
+
+function startEdit(t: BackupTaskStatus): void {
+  editingId.value = t.id
+  editDraft.localPath = t.localPath
+  editDraft.remoteId = t.remoteFolderId
+  editDraft.remoteName = t.remoteName
+  editDraft.moveContents = false
+  editing.value = true
+}
+
+function onEditParentPicked(target: { id: string; name: string }): void {
+  editDraft.remoteId = target.id
+  editDraft.remoteName = target.name
+}
+
+async function pickEditFolder(): Promise<void> {
+  const picked = await window.api.pickBackupFolder()
+  if (picked) editDraft.localPath = picked.localPath
+}
+
+async function confirmEdit(): Promise<void> {
+  const t = editTask.value
+  if (!t) return
+  const localChanged = editDraft.localPath !== t.localPath
+  const remoteChanged = editDraft.remoteId !== t.remoteFolderId
+  if (!localChanged && !remoteChanged) {
+    ElMessage.info('文件夹没有变化')
+    return
+  }
+  if (remoteChanged && !editDraft.moveContents) {
+    try {
+      await ElMessageBox.confirm(
+        `不搬迁的话，云端「${editDraft.remoteName}」当前为空，全部文件会重新备份一份到新位置。确定？`,
+        '不搬迁确认',
+        { type: 'warning', confirmButtonText: '重新完整备份' }
+      )
+    } catch {
+      return
+    }
+  }
+  saving.value = true
+  try {
+    await window.api.backupUpdate(t.id, {
+      localPath: localChanged ? editDraft.localPath : undefined,
+      remoteFolderId: remoteChanged ? editDraft.remoteId : undefined,
+      remoteName: remoteChanged ? editDraft.remoteName : undefined,
+      moveContents: remoteChanged && editDraft.moveContents
+    })
+    editing.value = false
+    ElMessage.success('备份文件夹已更新，正在重新扫描')
+    await load()
+  } catch (e) {
+    ElMessage.error(`改绑失败：${(e as Error).message}`)
+  } finally {
+    saving.value = false
   }
 }
 

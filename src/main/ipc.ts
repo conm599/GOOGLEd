@@ -230,6 +230,9 @@ export function registerIpc(): void {
   ipcMain.handle('backup:setWatch', (_e, id: string, watch: boolean) => backupManager.setWatch(id, watch))
   ipcMain.handle('backup:setQuietMinutes', (_e, id: string, minutes: number) => backupManager.setQuietMinutes(id, minutes))
   ipcMain.handle('backup:setSchedule', (_e, id: string, schedule?: BackupSchedule) => backupManager.setSchedule(id, schedule))
+  ipcMain.handle('backup:update', (_e, id: string, patch: { localPath?: string; remoteFolderId?: string; remoteName?: string; moveContents?: boolean }) =>
+    backupManager.updateFolders(id, patch)
+  )
   ipcMain.handle('backup:syncNow', (_e, id: string, manual?: boolean) => backupManager.syncNow(id, manual ?? true))
   ipcMain.handle('app:pathForFile', (_e, file: File) => webUtils.getPathForFile(file))
   ipcMain.handle('app:version', () => app.getVersion())

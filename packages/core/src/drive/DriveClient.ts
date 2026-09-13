@@ -1,5 +1,6 @@
 import { netClient } from '../net/NetClient'
 import { authService } from '../auth/AuthService'
+import { logger } from '../logger'
 import type { DriveFile, StorageQuota, DrivePermission } from '../types'
 
 const API = 'https://www.googleapis.com/drive/v3'
@@ -200,6 +201,53 @@ export class DriveClient {
       fields: 'id'
     })
     await this.call(`${API}/files/${fileId}?${params}`, { method: 'PATCH' })
+  }
+
+  /**
+   * 把 src 文件夹的全部子项（文件 + 子文件夹）整体移动到 dest 文件夹。
+   * 子文件夹只换父（子树内容随文件夹一起走，无需递归），每项一次 PATCH，并发 4。
+   * 404/410（远端已不存在，列表可能是 CF 缓存旧数据）视为跳过。返回 { moved, failed }。
+   */
+  async moveFolderContents(
+    srcId: string,
+    destId: string,
+    onProgress?: (done: number, total: number, name: string) => void
+  ): Promise<{ moved: number; failed: number }> {
+    const items: DriveFile[] = []
+    let pageToken: string | undefined
+    do {
+      const params = new URLSearchParams({
+        q: `'${escapeQuery(srcId)}' in parents and trashed=false`,
+        pageSize: '1000',
+        fields: `nextPageToken,files(id,name)`,
+        supportsAllDrives: 'true'
+      })
+      if (pageToken) params.set('pageToken', pageToken)
+      const r = await this.call<{ files?: DriveFile[]; nextPageToken?: string }>(`${API}/files?${params}`)
+      items.push(...(r.files || []))
+      pageToken = r.nextPageToken
+    } while (pageToken)
+
+    let moved = 0
+    let failed = 0
+    let cursor = 0
+    await Promise.all(
+      Array.from({ length: Math.min(4, items.length) }, async () => {
+        while (cursor < items.length) {
+          const item = items[cursor++]
+          try {
+            await this.move(item.id, destId, srcId)
+            moved++
+          } catch (e) {
+            if (e instanceof ApiError && (e.status === 404 || e.status === 410)) continue // 已不存在，无需搬
+            failed++
+            if (e instanceof Error) logger.warn('搬迁子项失败', item.name, e.message)
+          }
+          onProgress?.(moved + failed, items.length, item.name)
+        }
+      })
+    )
+    return { moved, failed }
   }
 
   async trash(fileId: string): Promise<void> {

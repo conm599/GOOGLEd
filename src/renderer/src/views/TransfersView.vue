@@ -13,7 +13,24 @@
       <el-button type="danger" plain @click="clearAll" :disabled="!store.tasks.length">清除所有任务</el-button>
     </div>
 
-    <div ref="tableWrapRef" class="table-wrap">
+    <!-- 汇总进度：已传/剩余文件数、字节量、百分比、总速度 -->
+    <div v-if="store.tasks.length" class="transfer-summary">
+      <el-progress
+        class="sum-bar"
+        :percentage="sumPct"
+        :stroke-width="10"
+        :status="sumFailed ? 'exception' : sumPct >= 100 ? 'success' : undefined"
+      />
+      <div class="sum-stats">
+        <el-text size="small">文件 <b>{{ sumDone }}</b>/{{ sumTotal }}</el-text>
+        <el-text size="small" :type="sumLeft ? 'primary' : 'info'">剩余 {{ sumLeft }} 个</el-text>
+        <el-text v-if="sumFailed" size="small" type="danger">失败 {{ sumFailed }}</el-text>
+        <el-text size="small">{{ fmtSize(sumBytes) }} / {{ fmtSize(sumBytesTotal) }}（{{ sumPct }}%）</el-text>
+        <el-text v-if="sumSpeed" size="small" type="primary">总速度 {{ fmtSpeed(sumSpeed) }}</el-text>
+      </div>
+    </div>
+
+    <div ref="tableWrapRef" class="table-wrap" :style="{ height: store.tasks.length ? 'calc(100% - 108px)' : 'calc(100% - 60px)' }">
       <el-table :data="displayed" height="100%" empty-text="暂无传输任务">
       <el-table-column label="文件" min-width="280">
         <template #default="{ row }">
@@ -130,6 +147,23 @@ const finishedCount = computed(
   () => store.tasks.filter((t) => t.status === 'done' || t.status === 'canceled').length
 )
 
+/* ---------- 汇总进度 ---------- */
+const sumTotal = computed(() => store.tasks.length)
+const sumDone = computed(() => store.tasks.filter((t) => t.status === 'done').length)
+const sumFailed = computed(() => store.tasks.filter((t) => t.status === 'error').length)
+const sumLeft = computed(
+  () => store.tasks.filter((t) => t.status === 'queued' || t.status === 'running' || t.status === 'paused').length
+)
+const sumBytes = computed(() =>
+  store.tasks.reduce((n, t) => n + (t.status === 'done' ? t.size || t.transferred : t.transferred || 0), 0)
+)
+const sumBytesTotal = computed(() => store.tasks.reduce((n, t) => n + (t.size || 0), 0))
+const sumPct = computed(() => {
+  if (!sumBytesTotal.value) return store.tasks.some((t) => t.status === 'done') ? 100 : 0
+  return Math.min(100, Math.floor((sumBytes.value / sumBytesTotal.value) * 100))
+})
+const sumSpeed = computed(() => store.tasks.reduce((n, t) => n + (t.status === 'running' ? t.speed || 0 : 0), 0))
+
 function pct(t: TransferTask): number {
   if (t.status === 'done') return 100
   if (!t.size) return 0
@@ -199,6 +233,27 @@ function reveal(t: TransferTask): void {
 </script>
 
 <style scoped>
+.transfer-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  background: var(--el-bg-color);
+}
+.sum-bar {
+  flex: 1;
+  min-width: 160px;
+}
+.sum-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
 .table-wrap {
   height: calc(100% - 60px);
 }

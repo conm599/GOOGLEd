@@ -78,6 +78,10 @@ const api = {
     ipcRenderer.invoke('backup:setQuietMinutes', id, minutes),
   backupSetSchedule: (id: string, schedule?: import('@core/types').BackupSchedule): Promise<void> =>
     ipcRenderer.invoke('backup:setSchedule', id, schedule),
+  backupUpdate: (
+    id: string,
+    patch: { localPath?: string; remoteFolderId?: string; remoteName?: string; moveContents?: boolean }
+  ): Promise<import('@core/types').BackupTaskStatus> => ipcRenderer.invoke('backup:update', id, patch),
   pickBackupFolder: (): Promise<{ localPath: string; suggestedName: string } | null> =>
     ipcRenderer.invoke('dialog:pickBackupFolder'),
   onBackupChanged: (cb: (tasks: import('@core/types').BackupTaskStatus[]) => void): (() => void) => {

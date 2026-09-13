@@ -36,6 +36,24 @@
         <div v-if="docxLoading" v-loading="true" class="docx-loading" element-loading-text="正在渲染文档…" />
         <div ref="docxEl" class="docx-box" />
       </div>
+      <!-- 其他可预览格式：Open File Viewer（Office 表格/幻灯片、压缩包、邮件、图纸、CAD、3D、GIS、Xmind） -->
+      <div v-else-if="kind === 'ofv'" class="ofv-wrap">
+        <OpenFileViewer
+          :file="mediaUrl"
+          :file-name="file?.name"
+          width="100%"
+          height="74vh"
+          fit="contain"
+          toolbar
+          theme="auto"
+          :plugins="ofvPlugins"
+          @error="onOfvError"
+        />
+        <div v-if="ofvError" class="media-retry">
+          <span>预览失败（{{ ofvError }}）</span>
+          <el-button size="small" type="primary" @click="emit('download')">下载到本地</el-button>
+        </div>
+      </div>
       <!-- 不支持 -->
       <div v-else class="unsupported-box">
         <el-empty description="该格式不支持在线预览，请下载后打开">
@@ -51,17 +69,57 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import Player from 'xgplayer'
 import 'xgplayer/dist/index.min.css'
 import { renderAsync } from 'docx-preview'
+import { OpenFileViewer } from '@open-file-viewer/vue'
+import {
+  officePlugin,
+  archivePlugin,
+  emailPlugin,
+  drawingPlugin,
+  xmindPlugin,
+  cadPlugin,
+  model3dPlugin,
+  gisPlugin,
+  fallbackPlugin
+} from '@open-file-viewer/core'
+import '@open-file-viewer/core/style.css'
 import type { DriveFile } from '@core/types'
 
 const props = defineProps<{ file: DriveFile | null }>()
 const visible = defineModel<boolean>({ default: false })
 const emit = defineEmits<{ download: [] }>()
 
-type Kind = 'video' | 'audio' | 'image' | 'pdf' | 'text' | 'docx' | 'unsupported'
+type Kind = 'video' | 'audio' | 'image' | 'pdf' | 'text' | 'docx' | 'ofv' | 'unsupported'
 const VIDEO_EXT = ['mp4', 'webm', 'm4v', 'mov']
 const AUDIO_EXT = ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'aac', 'opus']
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico']
 const TEXT_EXT = ['txt', 'md', 'json', 'js', 'ts', 'css', 'html', 'xml', 'yml', 'yaml', 'csv', 'log', 'ini', 'conf', 'sh', 'bat', 'py', 'sql', 'vue']
+// 走 Open File Viewer 的格式：现有通道（视频/音频/图片/PDF/docx/文本）之外的补充
+const OFV_EXT = [
+  // Office（docx 已有专用渲染器）
+  'xlsx', 'xls', 'xlsm', 'pptx', 'ppt', 'odt', 'ods', 'odp', 'rtf',
+  // 压缩包
+  'zip', '7z', 'rar', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'iso',
+  // 邮件
+  'eml', 'msg',
+  // 图纸 / CAD
+  'dwg', 'dxf', 'step', 'stp', 'iges', 'igs',
+  // 思维导图 / 3D 模型
+  'xmind', 'glb', 'gltf', 'obj', 'stl', 'fbx',
+  // GIS
+  'geojson', 'kml', 'kmz', 'gpx'
+]
+// 插件只挂新格式所需的（图片/音视频/文本走已有通道；PDF 走 Chromium 内置查看器）
+const ofvPlugins = [
+  officePlugin(),
+  archivePlugin(),
+  emailPlugin(),
+  drawingPlugin(),
+  xmindPlugin(),
+  cadPlugin(),
+  model3dPlugin(),
+  gisPlugin(),
+  fallbackPlugin()
+]
 
 const kind = computed<Kind>(() => {
   const f = props.file
@@ -75,8 +133,15 @@ const kind = computed<Kind>(() => {
   if (ext === 'pdf' || mime === 'application/pdf') return 'pdf'
   if (ext === 'docx' || mime.includes('wordprocessingml.document')) return 'docx'
   if (mime.startsWith('text/') || TEXT_EXT.includes(ext)) return 'text'
+  if (OFV_EXT.includes(ext)) return 'ofv'
   return 'unsupported'
 })
+
+const ofvError = ref('')
+
+function onOfvError(e: unknown): void {
+  ofvError.value = e instanceof Error ? e.message : String(e || '预览失败')
+}
 
 const mediaUrl = computed(() => (props.file ? `gd://media/${props.file.id}${bust.value ? `?r=${bust.value}` : ''}` : ''))
 
@@ -127,6 +192,7 @@ watch(
     }
     if (!props.file) return
     mediaError.value = false
+    ofvError.value = ''
     await nextTick()
     if (kind.value === 'video' && !player) {
       createPlayer()
@@ -230,6 +296,12 @@ onBeforeUnmount(destroyPlayer)
 .docx-box {
   max-height: 74vh;
   overflow: auto;
+}
+.ofv-wrap {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
 }
 .unsupported-box {
   padding: 40px 0;

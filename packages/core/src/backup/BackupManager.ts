@@ -158,6 +158,61 @@ class BackupManager {
     this.scheduleStabilityCheck(id) // 时长变化后按新期限重排唤醒
   }
 
+  /**
+   * 改绑备份任务的本地/云端文件夹：
+   * - 换本地：重置快照与稳定检测，重新监控；下次同步对新位置全量增量（云端已有同名文件会原地更新，不产生重复）
+   * - 换云端目标且 moveContents：把旧文件夹的子项（文件+子文件夹）整体移动到新位置，
+   *   然后旧空文件夹移入回收站；此时保留快照（本地文件没变，搬迁后的内容与快照天然一致，不会重新上传）
+   * - 换云端目标但不搬迁：保留快照，新位置空 → 首次同步视为全部新文件重新上传
+   */
+  async updateFolders(
+    id: string,
+    opts: { localPath?: string; remoteFolderId?: string; remoteName?: string; moveContents?: boolean }
+  ): Promise<BackupTaskStatus> {
+    const t = this.tasks.get(id)
+    if (!t) throw new Error('备份任务不存在')
+    const localChanged = !!opts.localPath && opts.localPath !== t.localPath
+    const remoteChanged = !!opts.remoteFolderId && opts.remoteFolderId !== t.remoteFolderId
+
+    if (localChanged) {
+      const stat = await fsp.stat(opts.localPath!).catch(() => null)
+      if (!stat?.isDirectory()) throw new Error('新的本地路径不存在或不是文件夹')
+    }
+
+    if (remoteChanged && opts.moveContents) {
+      if (this.syncing.has(id)) throw new Error('该任务正在备份中，请稍后再改绑')
+      this.progress(id, 'uploading', '正在搬迁云端旧文件夹内容…')
+      const r = await driveClient.moveFolderContents(t.remoteFolderId, opts.remoteFolderId!, (done, total, name) => {
+        this.progress(id, 'uploading', `正在搬迁云端内容 ${done}/${total}（${name}）`)
+      })
+      logger.info(`备份任务 ${t.remoteName}：搬迁 ${r.moved} 项到新位置${r.failed ? `，失败 ${r.failed} 项` : ''}`)
+      this.progress(id, 'uploading', '搬迁完成，旧文件夹移入回收站…')
+      await driveClient.trash(t.remoteFolderId).catch((e) => {
+        logger.warn('旧云端文件夹移入回收站失败（不影响备份继续）', (e as Error).message)
+      })
+    }
+
+    if (localChanged) {
+      this.stopWatcher(id)
+      this.clearStabilityTimer(id)
+      this.stability.delete(id)
+      t.localPath = opts.localPath!
+      t.files = {} // 本地换了位置：快照清零，下次同步按新位置全量增量
+      if (t.watch) this.startWatcher(id, t.localPath)
+    }
+    if (remoteChanged) {
+      t.remoteFolderId = opts.remoteFolderId!
+      if (opts.remoteName?.trim()) t.remoteName = opts.remoteName.trim()
+    }
+    if (localChanged || remoteChanged) {
+      this.persist()
+      this.emit()
+      // 改绑后立即做一次增量同步（按手动触发处理，跳过稳定等待）
+      void this.syncNow(id, true).catch((e) => logger.warn('改绑后首次同步失败', (e as Error).message))
+    }
+    return this.toStatus(t)
+  }
+
   /** manual=true（手动「立即备份」/新建任务首次备份）跳过稳定检测直接上传；监控触发则等待文件稳定 */
   async syncNow(id: string, manual = false): Promise<{ queued: number; scanned: number }> {
     const t = this.tasks.get(id)
