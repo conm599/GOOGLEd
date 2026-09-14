@@ -122,24 +122,65 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download Windows artifact
+      # GitHub artifact 服务偶发 403（ListArtifacts Forbidden），重试三次
+      - name: Download artifacts
+        id: dl1
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          name: GOOGLEd-Windows-x64
-          path: rel/win
+          pattern: 'GOOGLEd-*'
+          path: rel
 
-      - name: Download Linux artifact
+      - name: Wait before retry 1
+        if: steps.dl1.outcome == 'failure'
+        run: sleep 45
+
+      - name: Download artifacts (retry 1)
+        id: dl2
+        if: steps.dl1.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: 'GOOGLEd-*'
+          path: rel
+
+      - name: Wait before retry 2
+        if: steps.dl1.outcome == 'failure' && steps.dl2.outcome == 'failure'
+        run: sleep 60
+
+      - name: Download artifacts (retry 2)
+        if: steps.dl1.outcome == 'failure' && steps.dl2.outcome == 'failure'
         uses: actions/download-artifact@v4
         with:
-          name: GOOGLEd-Linux-x64
-          path: rel/linux
+          pattern: 'GOOGLEd-*'
+          path: rel
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.version.outputs.app_version }}
           files: |
-            rel/win/**/*.exe
-            rel/linux/*.tar.gz
+            rel/**/*.exe
+            rel/**/*.tar.gz
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+      # 定稿偶发 5xx 会把带资产的 Release 留成草稿：这里兜底翻成正式版
+      - name: Ensure release published (draft fallback)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ needs.version.outputs.app_version }}"
+          ID=$(gh api "repos/${{ github.repository }}/releases" --jq ".[] | select(.tag_name==\"$TAG\") | .id" | head -1 || true)
+          if [ -z "$ID" ]; then
+            echo "未找到 $TAG 的 Release（可能整体失败），跳过"
+            exit 0
+          fi
+          DRAFT=$(gh api "repos/${{ github.repository }}/releases/$ID" --jq '.draft')
+          if [ "$DRAFT" = "true" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/releases/$ID" -f draft=false > /dev/null
+            echo "✅ 已将草稿发布为正式版：$TAG"
+          else
+            echo "$TAG 已是正式版"
+          fi
