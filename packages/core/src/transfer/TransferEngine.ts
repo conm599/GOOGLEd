@@ -64,6 +64,19 @@ class TransferEngine {
     return [...this.tasks.values()].sort((a, b) => b.createdAt - a.createdAt)
   }
 
+  /** 备份去重用：查最近上传过的同路径任务（任意状态）。
+   * 云端列表经反代有延迟（刚传完的文件暂时查不到），窗口期内同内容不重复入队，防云端重复文件 */
+  recentUploadFor(localPath: string, withinMs: number): TransferTask | undefined {
+    let hit: TransferTask | undefined
+    const now = Date.now()
+    for (const t of this.tasks.values()) {
+      if (t.kind !== 'upload' || t.localPath !== localPath) continue
+      if (now - t.updatedAt > withinMs) continue
+      if (!hit || t.updatedAt > hit.updatedAt) hit = t
+    }
+    return hit
+  }
+
   /** 活动/排队/暂停中的下载任务正在使用的 .part 断点文件（缓存清理必须跳过这些） */
   activePartPaths(): Set<string> {
     const out = new Set<string>()

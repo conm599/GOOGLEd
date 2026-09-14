@@ -380,6 +380,10 @@ class BackupManager {
       const now = Date.now()
       upload = []
       for (const entry of pending) {
+        // 在途或刚传完同内容的不重复处理：云端列表有延迟，否则同一文件会入队两次 → 云端重复文件
+        const recent = transferEngine.recentUploadFor(entry.abs, 10 * 60_000)
+        if (recent && (recent.status === 'queued' || recent.status === 'running' || recent.status === 'paused')) continue
+        if (recent && recent.status === 'done' && recent.size === entry.size) continue
         const rec = recs.get(entry.rel)
         if (rec && rec.size === entry.size && rec.mtimeMs === entry.mtimeMs && now - rec.firstSeenAt >= quietMs) {
           recs.delete(entry.rel)
@@ -394,6 +398,10 @@ class BackupManager {
           deferred.push(entry)
         }
       }
+      // 清掉不再等待的稳定记录（已传完/已是最新/本地已删）：留着会让「仍在写入」计数虚高、同步空转
+      const deferredRels = new Set(deferred.map((d) => d.rel))
+      for (const rel of [...recs.keys()]) if (!deferredRels.has(rel)) recs.delete(rel)
+      if (!recs.size) this.stability.delete(t.id)
     } else if (manual) {
       this.stability.delete(t.id)
       this.clearStabilityTimer(t.id)
