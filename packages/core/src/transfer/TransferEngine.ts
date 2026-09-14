@@ -119,7 +119,7 @@ class TransferEngine {
    * folderCache 由调用方提供（relDir → folderId，含根目录映射），云端已存在的目录直接命中不重建。
    */
   async addBackupUploads(
-    files: { abs: string; rel: string; updateFileId?: string }[],
+    files: { abs: string; rel: string; updateFileId?: string; isFolder?: boolean }[],
     remoteFolderId: string,
     folderCache: Map<string, string>
   ): Promise<number> {
@@ -146,6 +146,11 @@ class TransferEngine {
       try {
         const relDir = f.rel.includes('/') ? f.rel.slice(0, f.rel.lastIndexOf('/')) : ''
         const targetId = await ensureDir(relDir)
+        if (f.isFolder) {
+          // 空目录条目：relDir 即目录自身路径，ensureDir（含父链）已把它如实建出，计入结果
+          count++
+          continue
+        }
         const key = `${f.abs}|${targetId}`
         if (inFlight.has(key)) continue
         inFlight.add(key)
@@ -169,10 +174,8 @@ class TransferEngine {
       for (const e of entries) {
         count += await this.addUploadPath(path.join(p, e), folder.id)
       }
-      if (!count) {
-        // 空文件夹也占位成功，直接返回
-      }
-      return count
+      // 空文件夹也要如实计入（返回 1 = 已创建目录这个有效结果），否则上层把“只建了空目录”当成未入队
+      return count || 1
     }
     const task: TransferTask = {
       id: randomUUID(),
@@ -236,11 +239,16 @@ class TransferEngine {
   async addDownloadFolderContents(folderId: string, destDir: string): Promise<number> {
     await fsp.mkdir(destDir, { recursive: true })
     let count = 0
-    const r = await driveClient.list({ parentId: folderId, pageSize: 1000, trashed: false })
-    for (const f of r.files) {
-      if (f.mimeType === FOLDER_MIME) count += await this.addDownloadFolderContents(f.id, path.join(destDir, f.name))
-      else count += await this.addDownload(f, destDir)
-    }
+    let pageToken: string | undefined
+    do {
+      const r = await driveClient.list({ parentId: folderId, pageSize: 1000, trashed: false, pageToken })
+      for (const f of r.files) {
+        // 子文件夹递归时带上自己的名字（本地结构与云端一致，避免全部平摊到一个目录）
+        if (f.mimeType === FOLDER_MIME) count += await this.addDownloadFolderContents(f.id, path.join(destDir, f.name))
+        else count += await this.addDownload(f, destDir)
+      }
+      pageToken = r.nextPageToken
+    } while (pageToken)
     return count
   }
 

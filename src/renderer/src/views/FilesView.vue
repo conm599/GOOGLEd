@@ -70,8 +70,8 @@
         </el-table-column>
         <el-table-column width="260" align="right">
           <template #default="{ row }">
-            <el-button v-if="!inTrash && !isFolder(row.mimeType)" size="small" text type="primary"
-              @click.stop="download(row)">下载</el-button>
+            <el-button v-if="!inTrash" size="small" text type="primary"
+              @click.stop="downloadAny(row)">下载</el-button>
             <el-button v-if="!inTrash" size="small" text @click.stop="share(row)">分享</el-button>
             <el-button v-if="!inTrash" size="small" text type="danger" @click.stop="trash(row)">删除</el-button>
             <template v-else>
@@ -722,7 +722,7 @@ function goTo(index: number): void {
 async function upload(folder: boolean): Promise<void> {
   try {
     const n = folder ? await window.api.addUploadFolder(currentId.value) : await window.api.addUploads(currentId.value)
-    if (n) ElMessage.success(`已加入 ${n} 个传输任务`)
+    if (n) ElMessage.success(`已加入 ${n} 项（文件与文件夹）`)
   } catch (e) {
     ElMessage.error(`上传失败：${(e as Error).message}`)
   }
@@ -740,7 +740,7 @@ async function onDrop(ev: DragEvent): Promise<void> {
   if (!paths.length) return
   try {
     const n = await window.api.addUploadPaths(paths, currentId.value)
-    ElMessage.success(`已加入 ${n} 个传输任务`)
+    ElMessage.success(`已加入 ${n} 项（文件与文件夹）`)
   } catch (e) {
     ElMessage.error(`上传失败：${(e as Error).message}`)
   }
@@ -793,8 +793,14 @@ async function downloadFolder(f: DriveFile): Promise<void> {
   await withToast(async () => {
     const n = await window.api.addDownloadRecursive(plain(f))
     if (!n) ElMessage.info('「' + f.name + '」是空文件夹，没有可下载的文件')
-    else ElMessage.success(`已入队 ${n} 个文件（保持子目录结构，断点续传）`)
+    else ElMessage.success(`已入队 ${n} 个文件（保持云端目录结构，断点续传）`)
   }, '下载失败')
+}
+
+/** 统一下载入口：文件夹走递归（保持目录结构），文件走单文件断点续传 */
+async function downloadAny(f: DriveFile): Promise<void> {
+  if (isFolder(f.mimeType)) await downloadFolder(f)
+  else await download(f)
 }
 
 function share(f: DriveFile): void {

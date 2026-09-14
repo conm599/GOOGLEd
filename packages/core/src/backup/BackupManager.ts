@@ -14,6 +14,8 @@ interface LocalEntry {
   rel: string
   size: number
   mtimeMs: number
+  /** 空目录条目：云端要如实建出目录，而不是“没东西就跳过” */
+  isFolder?: boolean
 }
 
 interface RemoteEntry {
@@ -364,6 +366,11 @@ class BackupManager {
     const pending: (LocalEntry & { updateFileId?: string })[] = []
     for (const entry of local) {
       const snap = snapshot[entry.rel]
+      if (entry.isFolder) {
+        // 空目录：云端缺这个目录就交给 addBackupUploads 建出来（folderCache 会先查已有目录）
+        if (!remoteFolders.has(entry.rel)) pending.push(entry)
+        continue
+      }
       const remoteHit = remote.get(entry.rel)
       const changed = !remoteHit || !snap || snap.size !== entry.size || snap.mtimeMs !== entry.mtimeMs
       if (changed) pending.push({ ...entry, updateFileId: remoteHit?.id })
@@ -380,6 +387,11 @@ class BackupManager {
       const now = Date.now()
       upload = []
       for (const entry of pending) {
+        if (entry.isFolder) {
+          // 空目录没有“写入中”的概念，直接放行去建目录
+          upload.push(entry)
+          continue
+        }
         // 在途或刚传完同内容的不重复处理：云端列表有延迟，否则同一文件会入队两次 → 云端重复文件
         const recent = transferEngine.recentUploadFor(entry.abs, 10 * 60_000)
         if (recent && (recent.status === 'queued' || recent.status === 'running' || recent.status === 'paused')) continue
@@ -412,7 +424,7 @@ class BackupManager {
 
     const deferNote = deferred.length ? `；${deferred.length} 个文件仍在写入，稳定后自动上传` : ''
     if (!upload.length) {
-      t.files = Object.fromEntries(local.map((l) => [l.rel, { size: l.size, mtimeMs: l.mtimeMs }]))
+      t.files = Object.fromEntries(local.filter((l) => !l.isFolder).map((l) => [l.rel, { size: l.size, mtimeMs: l.mtimeMs }]))
       if (deferred.length) this.scheduleStabilityCheck(t.id)
       this.progress(
         t.id,
@@ -424,20 +436,20 @@ class BackupManager {
       return { queued: 0, scanned: local.length }
     }
 
-    this.progress(t.id, 'uploading', `发现 ${upload.length} 个变更文件，正在入队…${deferNote}`)
+    this.progress(t.id, 'uploading', `发现 ${upload.length} 项变更，正在入队…${deferNote}`)
     const queued = await transferEngine.addBackupUploads(
-      upload.map((p) => ({ abs: p.abs, rel: p.rel, updateFileId: p.updateFileId })),
+      upload.map((p) => ({ abs: p.abs, rel: p.rel, updateFileId: p.updateFileId, isFolder: p.isFolder })),
       t.remoteFolderId,
       remoteFolders
     )
-    t.files = Object.fromEntries(local.map((l) => [l.rel, { size: l.size, mtimeMs: l.mtimeMs }]))
+    t.files = Object.fromEntries(local.filter((l) => !l.isFolder).map((l) => [l.rel, { size: l.size, mtimeMs: l.mtimeMs }]))
     if (deferred.length) this.scheduleStabilityCheck(t.id)
-    this.progress(t.id, 'done', `已入队 ${queued} 个文件${deferNote}（云端多余 ${remoteOnly} 项未处理）`)
+    this.progress(t.id, 'done', `已入队 ${queued} 项${deferNote}（云端多余 ${remoteOnly} 项未处理）`)
     logger.info(`备份任务 ${t.remoteName}：扫描 ${local.length}，入队 ${queued}，等待稳定 ${deferred.length}`)
     return { queued, scanned: local.length }
   }
 
-  /** 递归扫描本地文件夹 */
+  /** 递归扫描本地文件夹；空目录如实收录（云端同样建出来，保持目录结构与云端一致） */
   private async scanLocal(root: string): Promise<LocalEntry[]> {
     const out: LocalEntry[] = []
     const walk = async (dir: string, relBase: string): Promise<void> => {
@@ -451,7 +463,11 @@ class BackupManager {
         const abs = path.join(dir, e.name)
         const rel = relBase ? `${relBase}/${e.name}` : e.name
         if (e.isDirectory()) {
+          const before = out.length
           await walk(abs, rel)
+          // 子树没产出任何条目 = 这是个空目录（或其下全是空目录且未被收录的情形）：
+          // 收录自己，云端好如实建目录。ensureDir 会自动补建父目录链，只需记录最深的空目录
+          if (out.length === before) out.push({ abs, rel, size: 0, mtimeMs: 0, isFolder: true })
         } else if (e.isFile()) {
           try {
             const st = await fsp.stat(abs)

@@ -202,7 +202,7 @@ async function cmdUpload(args: Args): Promise<void> {
     out('没有可上传的文件')
     process.exit(0)
   }
-  out(`已入队 ${count} 个文件 → ${folder.name}（并发 ${loadSettings().concurrency}）`)
+  out(`已入队 ${count} 项 → ${folder.name}（并发 ${loadSettings().concurrency}）`)
   if (args['no-wait']) {
     out('不等待完成：任务已落盘，可运行 googled sync 或启动 daemon 处理')
     exitSoon()
@@ -227,7 +227,8 @@ async function cmdDownload(args: Args): Promise<void> {
   let count = 0
   for (const t of args._) {
     const e = await resolveEntry(t)
-    if (e.isFolder) count += await transferEngine.addDownloadFolderContents(e.id, dest)
+    // 文件夹：以其名为根目录落盘（dest/文件夹名/子目录/…），与云端结构一致
+    if (e.isFolder) count += await transferEngine.addDownloadFolderContents(e.id, path.join(dest, e.name))
     else count += await transferEngine.addDownload(e.file as import('@core/types').DriveFile, dest)
   }
   if (!count) {
