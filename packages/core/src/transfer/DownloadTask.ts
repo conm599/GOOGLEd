@@ -154,6 +154,11 @@ export class DownloadTask {
 
   private async finalize(): Promise<void> {
     const t = this.task
+    // .part 不在了：同路径的另一任务（云端同名重复副本）已先改名落定 → 目标就位即算完成，不覆盖
+    if (!fs.existsSync(this.partPath)) {
+      if (await this.settledByPeer()) return
+      throw new Error('断点文件缺失（可能已被同路径的其他任务清理），请重新下载')
+    }
     // md5 校验（重试场景可能已算过）
     if (!t.md5) {
       t.md5 = await hashFile(this.partPath)
@@ -165,6 +170,18 @@ export class DownloadTask {
     await fsp.rename(this.partPath, t.localPath)
     await this.clearMeta()
     logger.info('下载完成', t.localPath)
+  }
+
+  /** 同名文件已由另一任务完成落定：目标存在且大小吻合即视为完成（不再覆盖，避免互相删对方成品） */
+  private async settledByPeer(): Promise<boolean> {
+    const t = this.task
+    const st = await fsp.stat(t.localPath).catch(() => null)
+    if (st && st.isFile() && (!t.size || st.size === t.size)) {
+      logger.warn('同名文件已由另一任务完成，本次按完成处理', t.localPath)
+      await this.clearMeta().catch(() => undefined)
+      return true
+    }
+    return false
   }
 
   private async readMeta(): Promise<string | null> {

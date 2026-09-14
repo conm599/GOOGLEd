@@ -232,7 +232,7 @@ async function cmdDownload(args: Args): Promise<void> {
     else count += await transferEngine.addDownload(e.file as import('@core/types').DriveFile, dest)
   }
   if (!count) {
-    out('没有可下载的文件')
+    out('没有新增下载任务（文件夹为空，或文件都已在队列中）')
     process.exit(0)
   }
   out(`已入队 ${count} 个文件 → ${dest}`)

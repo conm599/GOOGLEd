@@ -784,16 +784,17 @@ async function rename(f: DriveFile): Promise<void> {
 async function download(f: DriveFile): Promise<void> {
   // 浅拷贝 + preload 端 plain() 纯化：行对象是深层 reactive Proxy，直接传 IPC 会克隆失败
   await withToast(async () => {
-    await window.api.addDownload(plain(f))
-    ElMessage.success(`「${f.name}」已加入下载队列`)
+    const n = await window.api.addDownload(plain(f))
+    if (n) ElMessage.success(`「${f.name}」已加入下载队列`)
+    else ElMessage.info(`「${f.name}」已在下载队列中，无需重复添加`)
   }, '下载失败')
 }
 
 async function downloadFolder(f: DriveFile): Promise<void> {
   await withToast(async () => {
     const n = await window.api.addDownloadRecursive(plain(f))
-    if (!n) ElMessage.info('「' + f.name + '」是空文件夹，没有可下载的文件')
-    else ElMessage.success(`已入队 ${n} 个文件（保持云端目录结构，断点续传）`)
+    if (n) ElMessage.success(`已入队 ${n} 个文件（保持云端目录结构；同名冲突自动加序号）`)
+    else ElMessage.info('没有新增下载任务（文件夹为空，或文件都已在队列中）')
   }, '下载失败')
 }
 

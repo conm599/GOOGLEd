@@ -203,12 +203,29 @@ class TransferEngine {
     await fsp.mkdir(dir, { recursive: true })
     // Google 在线文档（Docs/Sheets 等）没有 size，走 export 转格式下载
     const ex = GOOGLE_EXPORTS[file.mimeType]
-    let localName = file.name
+    let localName = safeFileName(file.name)
     if (ex && !/\.[a-z0-9]{2,5}$/i.test(localName)) localName += ex.ext
+    let localPath = path.join(dir, localName)
+
+    // 同一个远端文件已在队列/传输中（且路径相同）→ 不重复入队
+    for (const t of this.tasks.values()) {
+      if (
+        t.kind === 'download' &&
+        t.remoteId === file.id &&
+        t.localPath === localPath &&
+        (t.status === 'queued' || t.status === 'running' || t.status === 'paused')
+      ) {
+        return 0
+      }
+    }
+    // 云端可以有同名多份（或名字在 Windows 上归一化后相同）：别的文件占了这个路径就加序号，
+    // 否则两个任务写同一个 .part，先完成的改名落定、后完成的扑空 → ENOENT
+    if (this.pathClaimedBy(localPath, file.id)) localPath = this.uniquePath(localPath)
+
     const task: TransferTask = {
       id: randomUUID(),
       kind: 'download',
-      localPath: path.join(dir, localName),
+      localPath,
       fileName: file.name,
       remoteId: file.id,
       mimeType: file.mimeType,
@@ -227,12 +244,33 @@ class TransferEngine {
     return 1
   }
 
+  /** 该本地路径是否被「别的远端文件」占用（同一远端文件的既有任务不算冲突） */
+  private pathClaimedBy(localPath: string, remoteId: string): boolean {
+    for (const t of this.tasks.values()) {
+      if (t.kind !== 'download' || t.localPath !== localPath) continue
+      if (t.remoteId === remoteId) continue
+      return true
+    }
+    return false
+  }
+
+  /** 同名冲突时加序号：`名字 (1).ext`、`名字 (2).ext` …（与资源管理器习惯一致） */
+  private uniquePath(localPath: string): string {
+    const ext = path.extname(localPath)
+    const base = localPath.slice(0, localPath.length - ext.length)
+    for (let i = 1; i < 1000; i++) {
+      const cand = `${base} (${i})${ext}`
+      if (!this.pathClaimedBy(cand, '')) return cand
+    }
+    return `${base} (${Date.now()})${ext}`
+  }
+
   /** 递归下载：文件夹 → 以其名字为根目录逐层展开入队（保持子目录结构），单个文件 → 普通下载。返回入队文件数 */
   async addDownloadRecursive(file: DriveFile, destDir?: string): Promise<number> {
     const dir = destDir || loadSettings().downloadDir
     if (!dir) throw new Error('请先在设置中选择下载目录')
     if (file.mimeType !== FOLDER_MIME) return this.addDownload(file, dir)
-    return this.addDownloadFolderContents(file.id, path.join(dir, file.name))
+    return this.addDownloadFolderContents(file.id, path.join(dir, safeFileName(file.name)))
   }
 
   /** 把云端文件夹的全部内容（递归）加入下载队列，保持子目录结构；返回入队文件数 */
@@ -244,7 +282,7 @@ class TransferEngine {
       const r = await driveClient.list({ parentId: folderId, pageSize: 1000, trashed: false, pageToken })
       for (const f of r.files) {
         // 子文件夹递归时带上自己的名字（本地结构与云端一致，避免全部平摊到一个目录）
-        if (f.mimeType === FOLDER_MIME) count += await this.addDownloadFolderContents(f.id, path.join(destDir, f.name))
+        if (f.mimeType === FOLDER_MIME) count += await this.addDownloadFolderContents(f.id, path.join(destDir, safeFileName(f.name)))
         else count += await this.addDownload(f, destDir)
       }
       pageToken = r.nextPageToken
@@ -465,6 +503,19 @@ class TransferEngine {
     const snapshot = this.list().map((t) => ({ ...t, sessionUri: undefined }))
     getPlatform().broadcast('transfer:changed', snapshot)
   }
+}
+
+/**
+ * 云端文件名 → 本地安全文件名。
+ * Google Drive 允许 Windows 不允许的字符（`<>:"/\|?*`）、结尾点/空格、设备名（CON/PRN/NUL…），
+ * 直接落盘会创建失败（ENOENT/EINVAL），这里统一替换（非 Windows 平台原样保留）。
+ */
+export function safeFileName(name: string): string {
+  if (process.platform !== 'win32') return name
+  let n = name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '')
+  if (!n) n = '_'
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(n)) n = `_${n}`
+  return n
 }
 
 function guessMime(p: string): string {  const ext = path.extname(p).toLowerCase()
