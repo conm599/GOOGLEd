@@ -144,13 +144,15 @@ class TransferEngine {
     }
     for (const f of files) {
       try {
-        const relDir = f.rel.includes('/') ? f.rel.slice(0, f.rel.lastIndexOf('/')) : ''
-        const targetId = await ensureDir(relDir)
         if (f.isFolder) {
-          // 空目录条目：relDir 即目录自身路径，ensureDir（含父链）已把它如实建出，计入结果
+          // 空目录条目：f.rel 就是目录自身的相对路径，ensureDir(f.rel)（含父链）把它如实建出。
+          // 注意不能 ensureDir(f.rel 的父目录)——那样目录本身永远建不出来，且每轮同步都会重复处理
+          await ensureDir(f.rel)
           count++
           continue
         }
+        const relDir = f.rel.includes('/') ? f.rel.slice(0, f.rel.lastIndexOf('/')) : ''
+        const targetId = await ensureDir(relDir)
         const key = `${f.abs}|${targetId}`
         if (inFlight.has(key)) continue
         inFlight.add(key)
